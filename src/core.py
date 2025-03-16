@@ -19,6 +19,8 @@ def get_graph(model):
     # Symbolically trace the model to get computation graph
     graph = torch.fx.symbolic_trace(model)
     
+    # TODO: add shape propagation here instead of in shape_prop
+
     return graph
 
 def shape_prop(graph, input_shape):
@@ -90,7 +92,7 @@ def remove_node(graph, node):
     """
 
     # TODO: After a node is removed, the following nodes need to have their shape changed
-    
+
     # Get the input node that feeds into this node
     input_node = node.args[0]
     
