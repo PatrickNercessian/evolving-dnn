@@ -18,8 +18,6 @@ def get_graph(model):
         
     # Symbolically trace the model to get computation graph
     graph = torch.fx.symbolic_trace(model)
-    # Run shape propagation on the graph
-    # ShapeProp(graph).propagate()
     
     return graph
 
@@ -62,6 +60,7 @@ def add_node(graph, node, module, name=None):
         name: The name of the added module
     """
     
+    # TODO: modules should be pre-defined and dynamically built
     
     graph.add_submodule(name, module)
     # Add the node to the graph
@@ -89,6 +88,9 @@ def remove_node(graph, node):
     Returns:
         graph: The modified graph
     """
+
+    # TODO: After a node is removed, the following nodes need to have their shape changed
+    
     # Get the input node that feeds into this node
     input_node = node.args[0]
     
