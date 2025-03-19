@@ -117,16 +117,17 @@ def adapt_shape(graph, node, target_shape, mode='linear'):
         
     raise ValueError(f"Unsupported shape adaptation mode: {mode}")
 
-def add_node(graph, node, operation, operator_params: torch.Tensor = None, name=None):
+def add_node(graph, node, operation, operator_params: torch.Tensor = None, name=None, adapt_direction='new'):
     """
     Adds a new node to the graph and handles both module registration and operators
     
     Args:
         graph: The FX graph
         node: The target node to insert after
-        operation: Either a PyTorch module or a string representing an operator (e.g. 'add', 'mul')
+        operation: Either a PyTorch module or a string representing an operator
         operator_params: The accompanying tensor/value for the operation (required for operators)
         name: Optional name for the module (default: auto-generated)
+        adapt_direction: Which node to adapt when shapes don't match ('new' or 'previous')
     Returns:
         graph: The modified graph
         name: The name of the added module/operator
@@ -138,8 +139,12 @@ def add_node(graph, node, operation, operator_params: torch.Tensor = None, name=
     if isinstance(operation, nn.Module):
         if isinstance(operation, nn.Linear):
             if operation.in_features != input_shape[-1]:
-                # Adapt input shape instead of raising error
-                node = adapt_shape(graph, node, (*input_shape[:-1], operation.in_features), mode='linear')
+                if adapt_direction == 'previous':
+                    # Adapt the previous node
+                    node = adapt_shape(graph, node, (*input_shape[:-1], operation.in_features), mode='linear')
+                else:
+                    # Adapt the new layer
+                    operation = nn.Linear(input_shape[-1], operation.out_features)
         
         # Handle PyTorch modules
         graph.add_submodule(name, operation)
@@ -157,23 +162,26 @@ def add_node(graph, node, operation, operator_params: torch.Tensor = None, name=
         op_shape = operator_params.shape
         if operation in ['add', 'mul']:
             if not are_shapes_broadcastable(input_shape, op_shape):
-                # Adapt shapes for broadcasting
-                if len(input_shape) < len(op_shape):
+                if adapt_direction == 'previous':
                     node = adapt_shape(graph, node, op_shape, mode='broadcast')
                 else:
                     operator_params = operator_params.view(input_shape)
             
         elif operation == 'matmul':
             if len(input_shape) < 2 or len(op_shape) < 2:
-                # Add necessary dimensions
+                # Always add necessary dimensions regardless of direction
                 if len(input_shape) < 2:
                     node = adapt_shape(graph, node, (*input_shape, 1), mode='unsqueeze')
                 if len(op_shape) < 2:
                     operator_params = operator_params.unsqueeze(-1)
             
             if input_shape[-1] != op_shape[-2]:
-                # Add linear transformation to make dimensions match
-                node = adapt_shape(graph, node, (*input_shape[:-1], op_shape[-2]), mode='linear')
+                if adapt_direction == 'previous':
+                    node = adapt_shape(graph, node, (*input_shape[:-1], op_shape[-2]), mode='linear')
+                else:
+                    # Create new operator_params with matching dimensions
+                    new_params = nn.Linear(input_shape[-1], op_shape[-2])(operator_params)
+                    operator_params = new_params
         
         with graph.graph.inserting_after(node):
             if operation == 'add':
@@ -201,18 +209,16 @@ def add_node(graph, node, operation, operator_params: torch.Tensor = None, name=
         
     return graph, name
 
-def remove_node(graph, node):
+def remove_node(graph, node, adapt_direction='previous'):
     """
     Removes a node from the graph and cleans up its module if it was dynamically added.
-    Validates that the input node can be safely connected to the following nodes.
     
     Args:
         graph: The FX graph
         node: The node to remove
+        adapt_direction: Which nodes to adapt when shapes don't match ('previous' or 'following')
     Returns:
         graph: The modified graph
-    Raises:
-        ValueError: If shape validation fails or metadata is missing
     """
     input_node = node.args[0]
     
@@ -221,43 +227,58 @@ def remove_node(graph, node):
         
     input_shape = input_node.meta['tensor_meta']['shape']
     
-    # Instead of checking and raising errors, adapt shapes as needed
+    # Track nodes that need adaptation
+    nodes_to_adapt = []
+    
+    # Collect all shape mismatches
     for user in node.users:
         if user.op == 'call_module':
             if hasattr(getattr(graph, user.target), 'in_features'):
                 required_features = getattr(graph, user.target).in_features
                 if input_shape[-1] != required_features:
-                    input_node = adapt_shape(graph, input_node, 
-                                          (*input_shape[:-1], required_features),
-                                          mode='linear')
-        
+                    nodes_to_adapt.append((user, required_features))
+                    
         elif user.op == 'call_function':
             if user.target in [torch.add, torch.mul]:
                 other_arg = user.args[1] if user.args[0] is node else user.args[0]
                 if isinstance(other_arg, torch.fx.Node):
                     other_shape = other_arg.meta['tensor_meta']['shape']
                     if not are_shapes_broadcastable(input_shape, other_shape):
-                        input_node = adapt_shape(graph, input_node, other_shape, mode='broadcast')
+                        nodes_to_adapt.append((user, other_shape))
                         
             elif user.target == torch.matmul:
                 other_arg = user.args[1] if user.args[0] is node else user.args[0]
                 other_shape = other_arg.meta['tensor_meta']['shape']
                 if user.args[0] is node:  # node is first arg
                     if input_shape[-1] != other_shape[-2]:
-                        input_node = adapt_shape(graph, input_node,
-                                              (*input_shape[:-1], other_shape[-2]),
-                                              mode='linear')
+                        nodes_to_adapt.append((user, (*input_shape[:-1], other_shape[-2])))
                 else:  # node is second arg
                     if other_shape[-1] != input_shape[-2]:
-                        input_node = adapt_shape(graph, input_node,
-                                              (*input_shape[:-2], other_shape[-1], input_shape[-1]),
-                                              mode='linear')
+                        nodes_to_adapt.append((user, (*input_shape[:-2], other_shape[-1], input_shape[-1])))
     
-    # If all validations pass, proceed with node removal
+    # Apply adaptations based on direction
+    if adapt_direction == 'previous':
+        # Adapt the input node to match all requirements
+        for user, target_shape in nodes_to_adapt:
+            input_node = adapt_shape(graph, input_node, target_shape, 
+                                   mode='linear' if user.op == 'call_module' else 'broadcast')
+    else:  # adapt_direction == 'following'
+        # Adapt each following node individually
+        for user, _ in nodes_to_adapt:
+            if user.op == 'call_module':
+                # Replace the module with one that matches input shape
+                old_module = getattr(graph, user.target)
+                new_module = nn.Linear(input_shape[-1], old_module.out_features)
+                setattr(graph, user.target, new_module)
+            elif user.op == 'call_function':
+                # Insert adaptation layer before the operation
+                adapted_node = adapt_shape(graph, input_node, input_shape, mode='broadcast')
+                user.args = tuple(adapted_node if arg is node else arg for arg in user.args)
+    
+    # Proceed with node removal
     node.replace_all_uses_with(input_node)
     graph.graph.erase_node(node)
     
-    # Clean up module if necessary
     if node.op == "call_module":
         submodule_name = node.target
         if hasattr(graph, submodule_name):
