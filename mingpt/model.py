@@ -9,6 +9,7 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 """
 
 # THIS FILE IS COPIED FROM https://github.com/karpathy/minGPT/blob/master/mingpt/model.py
+# MINOR CHANGES MADE TO BE USED WITH torch.fx and be more readable
 
 import math
 
@@ -51,22 +52,27 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
 
+        self.is_proxy_for_fx = config.is_proxy_for_fx
+        self.block_size = config.block_size
+
     def forward(self, x):
-        B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
+        batch_size, sequence_length, embedding_dim = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
+        if self.is_proxy_for_fx:
+            sequence_length = self.block_size
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         q, k ,v  = self.c_attn(x).split(self.n_embd, dim=2)
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        k = k.view(batch_size, sequence_length, self.n_head, embedding_dim // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        q = q.view(batch_size, sequence_length, self.n_head, embedding_dim // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        v = v.view(batch_size, sequence_length, self.n_head, embedding_dim // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+        att = att.masked_fill(self.bias[:,:,:sequence_length,:sequence_length] == 0, float('-inf'))
         att = F.softmax(att, dim=-1)
         att = self.attn_dropout(att)
         y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+        y = y.transpose(1, 2).contiguous().view(batch_size, sequence_length, embedding_dim) # re-assemble all head outputs side by side
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
@@ -112,6 +118,7 @@ class GPT(nn.Module):
         C.embd_pdrop = 0.1
         C.resid_pdrop = 0.1
         C.attn_pdrop = 0.1
+        C.is_proxy_for_fx = False
         return C
 
     def __init__(self, config):
@@ -161,6 +168,8 @@ class GPT(nn.Module):
         # report number of parameters (note we don't count the decoder parameters in lm_head)
         n_params = sum(p.numel() for p in self.transformer.parameters())
         print("number of parameters: %.2fM" % (n_params/1e6,))
+
+        self.is_proxy_for_fx = config.is_proxy_for_fx
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -261,13 +270,16 @@ class GPT(nn.Module):
 
     def forward(self, idx, targets=None):
         device = idx.device
-        b, t = idx.size()
-        assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is only {self.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0) # shape (1, t)
+        batch_size, sequence_length = idx.size()
+        if self.is_proxy_for_fx:
+            device = torch.device("cpu")
+            sequence_length = self.block_size
+        assert sequence_length <= self.block_size, f"Cannot forward sequence of length {sequence_length}, block size is only {self.block_size}"
+        pos = torch.arange(0, sequence_length, dtype=torch.long, device=device).unsqueeze(0) # shape (1, sequence_length)
 
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (1, t, n_embd)
+        tok_emb = self.transformer.wte(idx) # token embeddings of shape (batch_size, sequence_length, embedding_dim)
+        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (1, sequence_length, embedding_dim)
         x = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.h:
             x = block(x)

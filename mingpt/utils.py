@@ -5,12 +5,12 @@ import json
 import random
 from ast import literal_eval
 
-import numpy as np
 import torch
 
 # -----------------------------------------------------------------------------
 
 def set_seed(seed):
+    import numpy as np
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
