@@ -48,6 +48,74 @@ def shape_prop(graph, input_shape):
     
     return graph
 
+def adapt_shape(graph, node, target_shape, mode='linear'):
+    """
+    Adapts a node's output shape to match a target shape by inserting appropriate transformation layers
+    
+    Args:
+        graph: The FX graph
+        node: The node whose output shape needs to be adapted
+        target_shape: The desired output shape
+        mode: The adaptation method ('linear', 'broadcast', 'squeeze', 'unsqueeze')
+    Returns:
+        node: The new node with the correct output shape
+    """
+    current_shape = node.meta['tensor_meta']['shape']
+    
+    if current_shape == target_shape:
+        return node
+        
+    if mode == 'linear':
+        # Add a linear layer to transform dimensions
+        in_features = current_shape[-1]
+        out_features = target_shape[-1]
+        linear_layer = nn.Linear(in_features, out_features)
+        # Generate unique name for the layer
+        name = f"shape_adapt_linear_{len(list(graph.modules()))}"
+        adapted_node, _ = add_node(graph, node, linear_layer, name=name)
+        return adapted_node
+        
+    elif mode == 'broadcast':
+        # Add broadcasting dimension through unsqueeze and repeat
+        if len(current_shape) < len(target_shape):
+            # Add dimensions at the start
+            diff = len(target_shape) - len(current_shape)
+            for i in range(diff):
+                node = graph.graph.call_function(
+                    torch.unsqueeze,
+                    args=(node, 0)
+                )
+        
+        # Handle dimension sizes through repeat
+        repeat_dims = []
+        for c, t in zip(node.meta['tensor_meta']['shape'], target_shape):
+            repeat_dims.append(t if t != c else 1)
+            
+        node = graph.graph.call_function(
+            torch.repeat,
+            args=(node, *repeat_dims)
+        )
+        return node
+        
+    elif mode == 'squeeze':
+        # Remove extra dimensions
+        while len(current_shape) > len(target_shape):
+            node = graph.graph.call_function(
+                torch.squeeze,
+                args=(node, 0)
+            )
+        return node
+        
+    elif mode == 'unsqueeze':
+        # Add new dimensions
+        while len(current_shape) < len(target_shape):
+            node = graph.graph.call_function(
+                torch.unsqueeze,
+                args=(node, 0)
+            )
+        return node
+        
+    raise ValueError(f"Unsupported shape adaptation mode: {mode}")
 
 def add_node(graph, node, operation, operator_params: torch.Tensor = None, name=None):
     """
@@ -63,17 +131,15 @@ def add_node(graph, node, operation, operator_params: torch.Tensor = None, name=
         graph: The modified graph
         name: The name of the added module/operator
     """
-    # Get the shape of the input node from its metadata
     if 'tensor_meta' not in node.meta:
         raise ValueError("Input node missing shape metadata. Run shape_prop() first.")
     input_shape = node.meta['tensor_meta']['shape']
     
     if isinstance(operation, nn.Module):
-        # Validate module shape compatibility
         if isinstance(operation, nn.Linear):
             if operation.in_features != input_shape[-1]:
-                raise ValueError(f"Linear layer input dimension ({operation.in_features}) "
-                              f"doesn't match input shape ({input_shape[-1]})")
+                # Adapt input shape instead of raising error
+                node = adapt_shape(graph, node, (*input_shape[:-1], operation.in_features), mode='linear')
         
         # Handle PyTorch modules
         graph.add_submodule(name, operation)
@@ -88,20 +154,27 @@ def add_node(graph, node, operation, operator_params: torch.Tensor = None, name=
         if operator_params is None:
             raise ValueError("operator_params is required for matrix operations")
             
-        # Validate operator shape compatibility
         op_shape = operator_params.shape
         if operation in ['add', 'mul']:
-            # Check broadcasting compatibility
             if not are_shapes_broadcastable(input_shape, op_shape):
-                raise ValueError(f"Shapes {input_shape} and {op_shape} are not broadcastable "
-                              f"for {operation} operation")
-        elif operation == 'matmul':
-            # Check matrix multiplication compatibility
-            if len(input_shape) < 2 or len(op_shape) < 2:
-                raise ValueError("Inputs must have at least 2 dimensions for matmul")
-            if input_shape[-1] != op_shape[-2]:
-                raise ValueError(f"Incompatible dimensions for matmul: {input_shape} and {op_shape}")
+                # Adapt shapes for broadcasting
+                if len(input_shape) < len(op_shape):
+                    node = adapt_shape(graph, node, op_shape, mode='broadcast')
+                else:
+                    operator_params = operator_params.view(input_shape)
             
+        elif operation == 'matmul':
+            if len(input_shape) < 2 or len(op_shape) < 2:
+                # Add necessary dimensions
+                if len(input_shape) < 2:
+                    node = adapt_shape(graph, node, (*input_shape, 1), mode='unsqueeze')
+                if len(op_shape) < 2:
+                    operator_params = operator_params.unsqueeze(-1)
+            
+            if input_shape[-1] != op_shape[-2]:
+                # Add linear transformation to make dimensions match
+                node = adapt_shape(graph, node, (*input_shape[:-1], op_shape[-2]), mode='linear')
+        
         with graph.graph.inserting_after(node):
             if operation == 'add':
                 new_node = graph.graph.call_function(torch.add, args=(node, operator_params))
@@ -141,58 +214,44 @@ def remove_node(graph, node):
     Raises:
         ValueError: If shape validation fails or metadata is missing
     """
-    # Get the input node that feeds into this node
     input_node = node.args[0]
     
-    # Check that both nodes have shape metadata
-    if 'tensor_meta' not in input_node.meta:
-        raise ValueError("Input node missing shape metadata. Run shape_prop() first.")
-    if 'tensor_meta' not in node.meta:
-        raise ValueError("Node to remove missing shape metadata. Run shape_prop() first.")
+    if 'tensor_meta' not in input_node.meta or 'tensor_meta' not in node.meta:
+        raise ValueError("Nodes missing shape metadata. Run shape_prop() first.")
         
     input_shape = input_node.meta['tensor_meta']['shape']
     
-    # Check compatibility with all nodes that use the node being removed
+    # Instead of checking and raising errors, adapt shapes as needed
     for user in node.users:
         if user.op == 'call_module':
-            # Check module compatibility
             if hasattr(getattr(graph, user.target), 'in_features'):
-                if input_shape[-1] != getattr(graph, user.target).in_features:
-                    raise ValueError(f"Cannot remove node: Input shape {input_shape} is incompatible "
-                                  f"with following layer's input dimension {getattr(graph, user.target).in_features}")
+                required_features = getattr(graph, user.target).in_features
+                if input_shape[-1] != required_features:
+                    input_node = adapt_shape(graph, input_node, 
+                                          (*input_shape[:-1], required_features),
+                                          mode='linear')
         
         elif user.op == 'call_function':
-            # Check operator compatibility
             if user.target in [torch.add, torch.mul]:
-                # For add/mul, check broadcasting compatibility with the other operand
                 other_arg = user.args[1] if user.args[0] is node else user.args[0]
                 if isinstance(other_arg, torch.fx.Node):
                     other_shape = other_arg.meta['tensor_meta']['shape']
-                else:  # It's a tensor parameter
-                    other_shape = other_arg.shape
-                    
-                if not are_shapes_broadcastable(input_shape, other_shape):
-                    raise ValueError(f"Cannot remove node: Input shape {input_shape} is not broadcastable "
-                                  f"with following operation's shape {other_shape}")
-                    
+                    if not are_shapes_broadcastable(input_shape, other_shape):
+                        input_node = adapt_shape(graph, input_node, other_shape, mode='broadcast')
+                        
             elif user.target == torch.matmul:
-                # For matmul, check matrix multiplication compatibility
                 other_arg = user.args[1] if user.args[0] is node else user.args[0]
-                if isinstance(other_arg, torch.fx.Node):
-                    other_shape = other_arg.meta['tensor_meta']['shape']
-                else:  # It's a tensor parameter
-                    other_shape = other_arg.shape
-                    
-                if len(input_shape) < 2 or len(other_shape) < 2:
-                    raise ValueError("Cannot remove node: Matmul requires at least 2 dimensions")
+                other_shape = other_arg.meta['tensor_meta']['shape']
                 if user.args[0] is node:  # node is first arg
                     if input_shape[-1] != other_shape[-2]:
-                        raise ValueError(f"Cannot remove node: Input shape {input_shape} is incompatible "
-                                      f"with following matmul operation's shape {other_shape}")
+                        input_node = adapt_shape(graph, input_node,
+                                              (*input_shape[:-1], other_shape[-2]),
+                                              mode='linear')
                 else:  # node is second arg
                     if other_shape[-1] != input_shape[-2]:
-                        raise ValueError(f"Cannot remove node: Input shape {input_shape} is incompatible "
-                                      f"with following matmul operation's shape {other_shape}")
+                        input_node = adapt_shape(graph, input_node,
+                                              (*input_shape[:-2], other_shape[-1], input_shape[-1]),
+                                              mode='linear')
     
     # If all validations pass, proceed with node removal
     node.replace_all_uses_with(input_node)
