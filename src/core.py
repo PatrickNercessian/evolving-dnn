@@ -18,7 +18,8 @@ def get_graph(model):
         
     # Symbolically trace the model to get computation graph
     graph = torch.fx.symbolic_trace(model)
-    
+    dict = {}
+            
     # TODO: add shape propagation here instead of in shape_prop
 
     return graph
