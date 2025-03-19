@@ -229,8 +229,6 @@ def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
         reference_node: The node to remove
     Returns:
         graph: The modified graph
-    Raises:
-        ValueError: If shape validation fails or metadata is missing
     """
     # Check if reference node is a skip connection or branch node
     if reference_node.target in (torch.add, torch.cat, torch.mul):
