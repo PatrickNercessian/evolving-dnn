@@ -6,17 +6,20 @@ import torch
 import torch.nn as nn
 import math
 import torch.nn.functional as F
+
 from core import get_graph, add_node, remove_node, shape_prop
+from visualization import visualize_graph
 
 from mingpt.model import GPT
 from mingpt.utils import CfgNode as CN
 
 config = CN()
 config.vocab_size = 50257
-config.model_type = 'gpt2'
-config.n_layer = None
-config.n_head = None
-config.n_embd = None
+# config.model_type = 'gpt2'
+config.model_type = None
+config.n_layer = 2
+config.n_head = 2
+config.n_embd = 768
 config.block_size = 1024
 config.embd_pdrop = 0.1
 config.attn_pdrop = 0.1
@@ -28,3 +31,5 @@ model = GPT(config)
 graph = get_graph(model)
 
 print(graph.graph)
+
+visualize_graph(graph, "model_graph", "graph.svg")
