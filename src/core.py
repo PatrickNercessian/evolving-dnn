@@ -5,8 +5,10 @@ import torch.nn.functional as F
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
+from .individual_graph_module import IndividualGraphModule
 
-def get_graph(model):
+
+def get_graph_module(model):
     """
     Takes a PyTorch model and returns its computation graph using torch.fx
     
@@ -17,11 +19,11 @@ def get_graph(model):
     """
         
     # Symbolically trace the model to get computation graph
-    graph = torch.fx.symbolic_trace(model)
+    graph_module = IndividualGraphModule(torch.fx.symbolic_trace(model))
     # Run shape propagation on the graph
     # ShapeProp(graph).propagate()
     
-    return graph
+    return graph_module
 
 def shape_prop(graph, input_shape):
     """

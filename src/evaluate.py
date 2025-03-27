@@ -1,9 +1,10 @@
 import torch
-from mingpt.model import GPT
 from mingpt.trainer import Trainer
 
+from .individual import Individual
+
 def calculate_fitness(
-    model: GPT,
+    individual: Individual,
     train_data_loader: torch.utils.data.DataLoader,
     val_data_loader: torch.utils.data.DataLoader,
     num_train_steps: int = 100,
@@ -22,28 +23,7 @@ def calculate_fitness(
     Returns:
         float: Fitness score (higher is better)
     """
-    # Create a copy of the model to avoid changing the original
-    config = model.get_default_config()
-    config.merge_from_dict({
-        'vocab_size': model.transformer.wte.weight.shape[0],
-        'block_size': model.block_size,
-        'n_layer': len(model.transformer.h),
-        'n_head': model.transformer.h[0].attn.n_head,
-        'n_embd': model.transformer.h[0].attn.n_embd,
-        'is_proxy_for_fx': getattr(model, 'is_proxy_for_fx', False),
-        'model_type': None,
-    })
-    model_copy = GPT(config)
-    # Copy the weights
-    model_copy.load_state_dict(model.state_dict())
-
-    train_config = Trainer.get_default_config()
-    train_config.max_iters = 5000
-    train_config.batch_size = 32
-    train_config.learning_rate = 3e-4
-    train_config.num_workers = 0
-
-    trainer = Trainer(train_config, model_copy, train_data_loader)
+    trainer = Trainer(individual.train_config, individual.graph_module, train_data_loader)
     def batch_end_callback(trainer):
         if trainer.iter_num % 100 == 0:
             print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
@@ -51,13 +31,13 @@ def calculate_fitness(
     trainer.run()
 
     # Calculate perplexity on the validation set
-    perplexity = calculate_perplexity(model_copy, val_data_loader, device=device)
+    perplexity = calculate_perplexity(individual.graph_module, val_data_loader, device=device)
 
     # Return negative perplexity as fitness (lower perplexity = better)
     return -perplexity
 
 def calculate_perplexity(
-    model: GPT,
+    model: torch.nn.Module,
     data_loader: torch.utils.data.DataLoader,
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
 ) -> float:
