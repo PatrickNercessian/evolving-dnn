@@ -1,5 +1,12 @@
-from mingpt.model import GPT, CN
 import random
+
+from mingpt.model import GPT
+from mingpt.trainer import Trainer
+from mingpt.utils import CfgNode as CN
+
+from .core import get_graph_module
+from .individual import Individual
+from .individual_graph_module import IndividualGraphModule
 
 def generate_initial_population(
     population_size,
@@ -21,21 +28,21 @@ def generate_initial_population(
     population = []
     
     for _ in range(population_size):
-        config = _create_random_gpt_config(vocab_size, block_size)
-        model = GPT(config)
-        population.append(model)
-    
+        model_config = create_random_gpt_config(vocab_size, block_size)
+        train_config = create_random_train_config()
+        print("model_config", model_config)
+        print("train_config", train_config)
+        graph_module = get_graph_module(GPT(model_config))
+        population.append(Individual(IndividualGraphModule(graph_module), train_config))
+
     return population
 
-def _create_random_gpt_config(
+def create_random_gpt_config(
     vocab_size,
     block_size,
-    min_layers=3,
-    max_layers=12,
-    min_heads=4,
-    max_heads=12,
-    min_embed=128,
-    max_embed=768,
+    layer_bounds=(3, 12),
+    head_bounds=(4, 12),
+    embed_bounds=(128, 768),
 ):
     """
     Create a random GPT configuration within specified bounds
@@ -58,13 +65,12 @@ def _create_random_gpt_config(
     # TODO should we do something like a normal distribution instead of equal probability?
     
     # Ensure n_embd is divisible by n_head
-    n_head = random.randint(min_heads, max_heads)
+    config.n_head = random.randint(head_bounds[0], head_bounds[1])
+
     # Round embedding size to nearest multiple of n_head
-    n_embd = random.randint(min_embed // n_head, max_embed // n_head) * n_head
-    
-    config.n_layer = random.randint(min_layers, max_layers)
-    config.n_head = n_head
-    config.n_embd = n_embd
+    config.n_embd = random.randint(embed_bounds[0] // config.n_head, embed_bounds[1] // config.n_head) * config.n_head
+
+    config.n_layer = random.randint(layer_bounds[0], layer_bounds[1])
     config.vocab_size = vocab_size
     config.block_size = block_size
     
@@ -74,6 +80,30 @@ def _create_random_gpt_config(
     config.attn_pdrop = random.uniform(0.0, 0.2)
 
     config.model_type = None
-    config.is_proxy_for_fx = False
+    config.is_proxy_for_fx = True
     
     return config
+
+def create_random_train_config(
+    batch_size_bounds=(32, 128),
+    learning_rate_bounds=(1e-5, 1e-3),
+    beta_1_bounds=(0.9, 0.95),
+    beta_2_bounds=(0.95, 0.999),
+    weight_decay_bounds=(0.0, 0.1),
+    grad_norm_clip_bounds=(0.0, 1.0),
+    max_iters=5000,
+):
+    train_config = CN()
+    train_config.device = 'auto'
+    train_config.batch_size = random.randint(batch_size_bounds[0], batch_size_bounds[1])
+    train_config.learning_rate = random.uniform(learning_rate_bounds[0], learning_rate_bounds[1])
+    train_config.betas = (
+        random.uniform(beta_1_bounds[0], beta_1_bounds[1]),
+        random.uniform(beta_2_bounds[0], beta_2_bounds[1])
+    )
+    train_config.weight_decay = random.uniform(weight_decay_bounds[0], weight_decay_bounds[1])
+    train_config.grad_norm_clip = random.uniform(grad_norm_clip_bounds[0], grad_norm_clip_bounds[1])
+    train_config.num_workers = 0
+    train_config.max_iters = max_iters
+
+    return train_config

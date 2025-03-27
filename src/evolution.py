@@ -1,13 +1,14 @@
 import random
 from typing import Callable
 import torch
-from mingpt.model import GPT
 
-class GPTEvolution:
+from .individual import Individual
+
+class Evolution:
     def __init__(
         self,
-        population: list[GPT],
-        fitness_fn: Callable[[GPT], float],
+        population: list[Individual],
+        fitness_fn: Callable[[Individual], float],
         mutation_rate: float = 0.1,
         selection_pressure: float = 0.5,
         block_size: int = 128,
@@ -69,9 +70,9 @@ class GPTEvolution:
 
         train_dataset = TextDataset(data, self.block_size)
         # TODO: add validation dataset
-        return [self.fitness_fn(model, train_dataset, train_dataset) for model in self.population]
+        return [self.fitness_fn(individual, train_dataset, train_dataset) for individual in self.population]
 
-    def _selection(self, fitness_scores: list[float]) -> list[GPT]:
+    def _selection(self, fitness_scores: list[float]) -> list[Individual]:
         """
         Select models for breeding based on fitness scores
         
@@ -92,7 +93,7 @@ class GPTEvolution:
         num_parents = int(len(self.population) * self.selection_pressure)
         return sorted_population[:num_parents]
 
-    def _crossover(self, parent1: GPT, parent2: GPT) -> GPT:
+    def _crossover(self, parent1: Individual, parent2: Individual) -> Individual:
         """
         Perform crossover between two parent models
         
@@ -103,9 +104,10 @@ class GPTEvolution:
         Returns:
             Child model
         """
+        # TODO: implement crossover with a deep copy of the individual
         raise NotImplementedError("Crossover method not implemented")
 
-    def _mutate(self, model: GPT) -> GPT:
+    def _mutate(self, model: Individual) -> Individual:
         """
         Mutate a single model
         
@@ -115,6 +117,7 @@ class GPTEvolution:
         Returns:
             Mutated model
         """
+        # TODO: implement mutation with a deep copy of the individual
         raise NotImplementedError("Mutation method not implemented")
 
     def _log_generation(self, fitness_scores: list[float]):
@@ -168,8 +171,8 @@ if __name__ == "__main__":
 
     BLOCK_SIZE = 128
 
-    evolution = GPTEvolution(
-        population=generate_initial_population(10, VOCAB_SIZE, BLOCK_SIZE),
+    evolution = Evolution(
+        population=generate_initial_population(2, VOCAB_SIZE, BLOCK_SIZE),
         fitness_fn=calculate_fitness,
         mutation_rate=0.1,
         selection_pressure=0.5,
