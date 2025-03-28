@@ -49,3 +49,22 @@ class CausalSelfAttention(nn.Module):
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         return y
+    
+
+
+class simple_linear(nn.Module):
+    def __init__(self, in_features, out_features):
+        super().__init__()
+        self.linear = nn.Linear(in_features, out_features)
+        self.relu = nn.ReLU()
+        self.linear2 = nn.Linear(2*out_features, 5)
+
+    def forward(self, x: torch.Tensor):
+        x1 = self.linear(x)
+        x2 = self.relu(x1)
+        cat = torch.cat([x1, x2], dim=1)
+        x3: torch.Tensor = self.linear2(cat)
+        # duplicate x3 in the last dimension
+        x3 = x3.repeat(1, 2)
+        x4 = (x.transpose(0, 1)@x3)
+        return x4

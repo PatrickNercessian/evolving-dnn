@@ -113,6 +113,7 @@ def adapt_connections(graph, node_to_adapt_from):
         following_input_shape, following_output_shape = find_required_shapes(graph, output_node)
         output_node_input_shapes.append(following_input_shape)
 
+
     # check if the input node output shapes are compatible with the node to adapt from
     for input_node_output_shape in input_node_output_shapes:
         if input_node_output_shape != input_shape:
