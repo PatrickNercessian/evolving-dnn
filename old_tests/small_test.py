@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.fx
-from core import get_graph, add_node, remove_node, shape_prop
+from core_old2 import get_graph, add_node, remove_node, shape_prop
 
 # Define a simple model for testing
 class SimpleModel(nn.Module):
