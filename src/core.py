@@ -56,7 +56,11 @@ def add_node(graph, reference_node, operation: str):
     if operation == 'linear':
         graph, input_node = add_linear(graph, reference_node)
     
+    graph.graph.lint()
+    graph.recompile()
+        
     # Fix the connections
+    # TODO: need to pass in required shapes as an argument
     adapt_connections(graph, input_node)
 
     return graph
@@ -86,7 +90,7 @@ def remove_node(graph, reference_node):
 
     return graph, input_node
 
-def adapt_connections(graph, node_to_adapt_from):
+def adapt_connections(graph, node_to_adapt_from, input_shape: int, output_shape: int):
     """
     Adapts the connections to/from a node to ensure all connected nodes have compatible shapes.
     
@@ -96,16 +100,13 @@ def adapt_connections(graph, node_to_adapt_from):
     Returns:
         graph: The modified graph
     """
-
-    # get the required shapes for the node to adapt from
-    input_shape, output_shape = find_required_shapes(graph, node_to_adapt_from)
-
+    
     # list of output shapes from input nodes
     input_node_output_shapes = []
     # list of input shapes from output nodes
     output_node_input_shapes = []
     # get the required shapes of any input nodes
-    for input_node in node_to_adapt_from.args[0].args:
+    for input_node in node_to_adapt_from.args:
         previous_input_shape, previous_output_shape = find_required_shapes(graph, input_node)
         input_node_output_shapes.append(previous_output_shape)
     # get the required shapes of any output nodes
@@ -115,12 +116,14 @@ def adapt_connections(graph, node_to_adapt_from):
 
 
     # check if the input node output shapes are compatible with the node to adapt from
+    # For now we're only checking linear layers, which means input will only come from one node
+    # TODO: handle multiple input nodes
     for input_node_output_shape in input_node_output_shapes:
-        if input_node_output_shape != input_shape:
-            pass
+        if input_node_output_shape[0][-1] != input_shape:
+            print(f"Input node output shape {input_node_output_shape} is not compatible with the node to adapt from {input_shape}")
 
     # check if the output node input shapes are compatible with the node to adapt from
     for output_node_input_shape in output_node_input_shapes:
-        if output_node_input_shape != output_shape:
-            pass
+        if output_node_input_shape[0][-1] != output_shape:
+            print(f"Output node input shape {output_node_input_shape} is not compatible with the node to adapt from {output_shape}")
 
