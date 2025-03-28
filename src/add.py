@@ -52,4 +52,4 @@ def add_linear(graph, reference_node, mutate: str = 'input'):
     graph.graph.lint()
     graph.recompile()
         
-    return graph, name
+    return graph, new_node
