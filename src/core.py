@@ -152,6 +152,15 @@ def adapt_connections(graph, new_node, new_node_shape: tuple[int, int], input_sh
     if input_shape is not None:
         if input_shape[-1] != new_node_shape[0]: # last dimension of input node output shape
             print(f"Input node output shape {input_shape[-1]} is not compatible with the node to adapt from {new_node_shape[0]}")
+            
+            # Handle input size mismatch by adapting the input node
+            if input_shape[-1] > new_node_shape[0]:
+                # Input is larger - add adaptive pooling to reduce size
+                graph, new_node = add_pool(graph, new_node.args[0], new_node_shape[0])
+                
+            elif input_shape[-1] < new_node_shape[0]:
+                # Input is smaller - add repeat/broadcast to increase size
+                graph, new_node = add_repeat(graph, new_node.args[0], input_shape[-1], new_node_shape[0])
 
     # check if the output node input shapes are compatible with the node to adapt from
     if output_shape is not None:
