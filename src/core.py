@@ -51,17 +51,27 @@ def add_node(graph, reference_node, operation: str):
     Returns:
         graph: The modified graph
     """
-
+    
+    # Get required shapes before making any modifications
+    input_shape, output_shape = find_required_shapes(graph, reference_node)
+    
     # Add a linear layer to the graph
     if operation == 'linear':
-        graph, input_node = add_linear(graph, reference_node)
-    
+        # get the shape of the reference node from metadata
+        reference_node_shape = reference_node.meta['tensor_meta'].shape
+        # add a linear layer to the graph
+        graph, new_node = add_linear(graph, reference_node, reference_node_shape[-1])
+        # get the shape of the new node from the module
+        new_node_shape = (graph.get_submodule(new_node.target).in_features, 
+                         graph.get_submodule(new_node.target).out_features)
+
+        print(f"New node shape: {new_node_shape}")
+
     graph.graph.lint()
     graph.recompile()
         
-    # Fix the connections
-    # TODO: need to pass in required shapes as an argument
-    adapt_connections(graph, input_node)
+    # Fix the connections using pre-computed shapes
+    adapt_connections(graph, new_node, new_node_shape, input_shape, output_shape)
 
     return graph
 
@@ -90,40 +100,27 @@ def remove_node(graph, reference_node):
 
     return graph, input_node
 
-def adapt_connections(graph, node_to_adapt_from, input_shape: int, output_shape: int):
+def adapt_connections(graph, new_node, new_node_shape: tuple[int, int], input_shape, output_shape):
     """
     Adapts the connections to/from a node to ensure all connected nodes have compatible shapes.
     
     Args:
         graph: The FX graph
-        node_to_adapt_from: The node whose connections need adaptation
+        new_node: The node whose connections need adaptation
+        new_node_shape: The shape of the new node
+        input_shape: The shape of the input node (pre-computed)
+        output_shape: The shape of the output node (pre-computed)
     Returns:
         graph: The modified graph
     """
     
-    # list of output shapes from input nodes
-    input_node_output_shapes = []
-    # list of input shapes from output nodes
-    output_node_input_shapes = []
-    # get the required shapes of any input nodes
-    for input_node in node_to_adapt_from.args:
-        previous_input_shape, previous_output_shape = find_required_shapes(graph, input_node)
-        input_node_output_shapes.append(previous_output_shape)
-    # get the required shapes of any output nodes
-    for output_node in node_to_adapt_from.users:
-        following_input_shape, following_output_shape = find_required_shapes(graph, output_node)
-        output_node_input_shapes.append(following_input_shape)
-
-
     # check if the input node output shapes are compatible with the node to adapt from
-    # For now we're only checking linear layers, which means input will only come from one node
-    # TODO: handle multiple input nodes
-    for input_node_output_shape in input_node_output_shapes:
-        if input_node_output_shape[0][-1] != input_shape:
-            print(f"Input node output shape {input_node_output_shape} is not compatible with the node to adapt from {input_shape}")
+    if input_shape is not None:
+        if input_shape[-1] != new_node_shape[0]: # last dimension of input node output shape
+            print(f"Input node output shape {input_shape} is not compatible with the node to adapt from {new_node_shape}")
 
     # check if the output node input shapes are compatible with the node to adapt from
-    for output_node_input_shape in output_node_input_shapes:
-        if output_node_input_shape[0][-1] != output_shape:
-            print(f"Output node input shape {output_node_input_shape} is not compatible with the node to adapt from {output_shape}")
+    if output_shape is not None:
+        if output_shape[-1] != new_node_shape[1]:
+            print(f"Output node input shape {output_shape} is not compatible with the node to adapt from {new_node_shape}")
 

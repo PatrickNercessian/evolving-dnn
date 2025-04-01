@@ -26,7 +26,11 @@ def find_required_shapes(graph, node):
         # check the node args for the nodes that feed into the current node
         def get_shape(arg):
             if isinstance(arg, torch.fx.Node):
-                return list(arg.meta['tensor_meta'].shape)
+                try:
+                    return list(arg.meta['tensor_meta'].shape)
+                except:
+                    print(f"Error getting shape for node {arg}")
+                    return None
             elif isinstance(arg, list):
                 return [get_shape(sub_arg) for sub_arg in arg if isinstance(sub_arg, torch.fx.Node) or isinstance(sub_arg, list)]
             else:
