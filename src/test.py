@@ -23,8 +23,10 @@ for i in graph.graph.nodes:
     print(i, end=" ")
     print(find_required_shapes(graph, i))
 
-# test add
-add_node(graph, graph.graph.find_nodes(op="call_module", target="linear_1"), "linear")
+# test add_node
+node_to_add = graph.graph.find_nodes(op="call_module", target="linear")[0]
+# print(node_to_add)
+add_node(graph, node_to_add, "linear")
 
 graph.graph.print_tabular()
 
