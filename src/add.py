@@ -23,7 +23,7 @@ def add_linear(graph, reference_node, reference_node_output_shape: int):
 
     # Assign random shape to the new linear layer
     shape = (reference_node_output_shape, random.randint(1, 1000))
-
+    
     # Add the linear layer to the graph
     graph.add_submodule(name, nn.Linear(shape[0], shape[1]))
     
@@ -85,19 +85,12 @@ def add_repeat(graph, reference_node, input_size: int, target_size: int):
     # Create repeat layer with unique name
     name = get_unique_name(graph, 'repeat')
     
-    # Create repeat layer
-    class RepeatLayer(nn.Module):
-        def __init__(self, input_size, target_size):
-            super().__init__()
-            self.repeat_factor = target_size // input_size
-            if target_size % input_size != 0:
-                raise ValueError(f"Target size {target_size} must be divisible by input size {input_size}")
-        
-        def forward(self, x):
-            return x.repeat(1, 1, self.repeat_factor)
+    # Calculate padding needed to reach target size
+    padding = target_size - input_size
     
-    repeat_layer = RepeatLayer(input_size, target_size)
-    graph.add_submodule(name, repeat_layer)
+    # Create circular padding layer
+    pad_layer = nn.CircularPad1d((0, padding))
+    graph.add_submodule(name, pad_layer)
     
     # Add repeat node after reference_node
     with graph.graph.inserting_after(reference_node):

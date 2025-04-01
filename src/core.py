@@ -100,6 +100,13 @@ def add_node(graph, reference_node, operation: str, **kwargs):
     # Fix the connections using pre-computed shapes
     adapt_connections(graph, new_node, new_node_shape, input_shape, output_shape)
 
+    graph.graph.lint()
+    graph.recompile()
+
+    # Run shape propagation again to update all shape metadata
+    example_input = torch.randn(next(iter(graph.graph.nodes)).meta['tensor_meta'].shape)
+    ShapeProp(graph).propagate(example_input)
+
     return graph
 
 def remove_node(graph, reference_node):
@@ -154,11 +161,13 @@ def adapt_connections(graph, new_node, new_node_shape: tuple[int, int], input_sh
             # Handle output size mismatch
             if new_node_shape[1] > output_shape[-1]:
                 # New node output is larger - add adaptive pooling
-                graph = add_node(graph, new_node, 'pool', target_size=output_shape[-1])
+                graph, new_node = add_pool(graph, new_node, output_shape[-1])
                 
             elif new_node_shape[1] < output_shape[-1]:
                 # New node output is smaller - add repeat/broadcast
-                graph = add_node(graph, new_node, 'repeat', target_size=output_shape[-1])
+                graph, new_node = add_repeat(graph, new_node, new_node_shape[1], output_shape[-1])
+    
+    return graph
 
 
 
