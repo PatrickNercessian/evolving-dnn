@@ -121,12 +121,24 @@ def remove_node(graph, reference_node):
     """
     input_node = reference_node.args[0]
     
+    # Get shapes before removing node
+    output_left_shape = list(input_node.meta['tensor_meta'].shape)
+    input_right_shape = reference_node.meta['tensor_meta'].shape
+    
     # Remove the node from the graph
     reference_node.replace_all_uses_with(input_node)
-    graph.graph.erase_node(reference_node)
     
     # Delete the submodule
     delattr(graph, reference_node.target)
+    
+    graph.graph.erase_node(reference_node)
+    
+
+    # Adapt connections between input node and its new users
+    # In this case, the new node is the input node, so new_node input is always correct already
+    graph = adapt_connections(graph, new_node=input_node, 
+                              new_node_shape=(output_left_shape[-1], output_left_shape[-1]), 
+                              input_shape=output_left_shape, output_shape=input_right_shape)
 
     # Lint and recompile the graph
     graph.graph.lint()
