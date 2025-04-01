@@ -49,3 +49,27 @@ def find_required_shapes(graph, node):
         # required output shape can be found in the meta of the node
         output_shape = list(node.meta['tensor_meta'].shape)
         return (input_shape, output_shape)
+
+def get_unique_name(graph, base_name: str) -> str:
+    """
+    Generates a unique name for a node in the graph by appending incrementing numbers.
+    
+    Args:
+        graph: The FX graph
+        base_name: The base name to use (e.g., 'linear', 'pool', 'repeat')
+    Returns:
+        str: A unique name for the node
+    """
+    # Get list of all module names in graph
+    module_names = [node.target for node in graph.graph.nodes if node.op == "call_module"]
+    
+    # Try base name first
+    name = base_name
+    counter = 1
+    
+    # Keep incrementing counter until we find a unique name
+    while name in module_names:
+        name = f"{base_name}_{counter}"
+        counter += 1
+    
+    return name

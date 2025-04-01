@@ -9,7 +9,7 @@ from utils import find_required_shapes
 from modelbank import CausalSelfAttention, simple_linear
 from core import get_graph, add_node, remove_node, adapt_connections
 from utils import find_required_shapes
-
+import random
 
 model = simple_linear(10, 10)
 graph: torch.fx.GraphModule = get_graph(model, (1, 10))
@@ -23,9 +23,9 @@ for i in graph.graph.nodes:
     print(i, end=" ")
     print(find_required_shapes(graph, i))
 
-# test add_node
-node_to_add = graph.graph.find_nodes(op="call_module", target="linear")[0]
-# print(node_to_add)
+# get random node to add
+node_to_add = random.choice(list(graph.graph.find_nodes(op="call_module")))
+print(node_to_add)
 add_node(graph, node_to_add, "linear")
 
 graph.graph.print_tabular()
