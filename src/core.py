@@ -7,8 +7,10 @@ from torch.fx.passes.shape_prop import ShapeProp
 from add import add_linear, add_pool, add_repeat
 from utils import find_required_shapes 
 
+from .individual_graph_module import IndividualGraphModule
 
 def get_graph(model, input_shape):
+
     """
     Takes a PyTorch model and returns its computation graph using torch.fx
     
@@ -20,7 +22,7 @@ def get_graph(model, input_shape):
     """
         
     # Symbolically trace the model to get computation graph
-    graph = torch.fx.symbolic_trace(model)
+    graph = IndividualGraphModule(torch.fx.symbolic_trace(model))
     
     # Perform shape propagation if input_shape is provided
     if input_shape is not None:
