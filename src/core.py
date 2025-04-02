@@ -7,7 +7,7 @@ from torch.fx.passes.shape_prop import ShapeProp
 from add import add_linear, add_pool, add_repeat
 from utils import find_required_shapes 
 
-from .individual_graph_module import IndividualGraphModule
+from individual_graph_module import IndividualGraphModule
 
 def get_graph(model, input_shape):
 
