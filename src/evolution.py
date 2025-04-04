@@ -1,35 +1,49 @@
+import copy
 import random
 from typing import Callable
 import torch
 
 from .individual import Individual
+from .hyperparam_variation import (
+    mutate_batch_size, crossover_batch_size,
+    mutate_learning_rate, crossover_learning_rate,
+    mutate_learning_rate_scheduler, crossover_learning_rate_scheduler,
+    mutate_optimizer_parameters, crossover_optimizer_parameters,
+)
 
 class Evolution:
     def __init__(
         self,
         population: list[Individual],
         fitness_fn: Callable[[Individual], float],
-        mutation_rate: float = 0.1,
-        selection_pressure: float = 0.5,
+        crossover_instead_of_mutation_rate: float = 0.5,
+        mutation_fns_and_probabilities: list[tuple[Callable[[Individual], Individual], float]] = [],
+        crossover_fns_and_probabilities: list[tuple[Callable[[Individual, Individual], Individual], float]] = [],
+        target_population_size: bool = 100,
         block_size: int = 128,
     ):
         """
         Initialize the evolution process
         
         Args:
-            population: Initial population of GPT models
-            fitness_fn: Function that takes a GPT model and returns its fitness score
-            mutation_rate: Probability of mutation for each parameter
-            selection_pressure: Fraction of population to select as parents
+            population: Initial population of individuals
+            fitness_fn: Function that takes an individual and returns its fitness score
+            crossover_instead_of_mutation_rate: Probability of crossover occurring instead of mutation
+            mutation_fns_and_probabilities: List of mutation functions and their respective probabilities if mutation occurs
+            crossover_fns_and_probabilities: List of crossover functions and their respective probabilities if crossover occurs
+            target_population_size: Population size to maintain after selection
         """
         self.population = population
         self.fitness_fn = fitness_fn
-        self.mutation_rate = mutation_rate
-        self.selection_pressure = selection_pressure
+        self.crossover_instead_of_mutation_rate = crossover_instead_of_mutation_rate
+        self.mutation_fns_and_probabilities = mutation_fns_and_probabilities
+        self.crossover_fns_and_probabilities = crossover_fns_and_probabilities
+        self.target_population_size = target_population_size
         self.block_size = block_size
         self.generation = 0
         self.best_fitness = float('-inf')
-        self.best_model = None
+        self.best_individual = None
+        self.id_counter = len(self.population)
 
     def run_evolution(self, num_generations: int):
         """
@@ -41,18 +55,24 @@ class Evolution:
         for gen in range(num_generations):
             self.generation = gen
             
-            # Calculate fitness for all models
+            # Calculate fitness for all individuals
             fitness_scores = self._evaluate_population()
-            
+
             # Select parents for next generation
             parents = self._selection(fitness_scores)
-            
+            for parent in parents:
+                print(f"Parent {parent.id} has train config {parent.train_config}")
+
             # Create new population through crossover and mutation
             new_population = []
             while len(new_population) < len(self.population):
-                parent1, parent2 = random.sample(parents, 2)
-                child = self._crossover(parent1, parent2)
-                child = self._mutate(child)
+                parent1, parent2 = random.sample(parents, 2)  # TODO should this sample with or without replacement?
+                if random.random() < self.crossover_instead_of_mutation_rate:
+                    child = self._crossover(parent1, parent2)
+                else:
+                    child = self._mutate(copy.deepcopy(parent1))
+                child.id = self.id_counter
+                self.id_counter += 1
                 new_population.append(child)
             
             self.population = new_population
@@ -65,22 +85,22 @@ class Evolution:
         Calculate fitness scores for entire population
         
         Returns:
-            List of fitness scores corresponding to each model
+            List of fitness scores corresponding to each individual
         """
 
-        train_dataset = TextDataset(data, self.block_size)
+        train_dataset = TextDataset(data, self.block_size)  # TODO this shouldn't be part of the evolution class, not abstracted enough
         # TODO: add validation dataset
         return [self.fitness_fn(individual, train_dataset, train_dataset) for individual in self.population]
 
     def _selection(self, fitness_scores: list[float]) -> list[Individual]:
         """
-        Select models for breeding based on fitness scores
+        Select individuals for breeding based on fitness scores
         
         Args:
             fitness_scores: List of fitness scores for current population
             
         Returns:
-            List of selected parent models
+            List of selected parents
         """
         # Sort population by fitness
         sorted_population = [x for _, x in sorted(
@@ -89,36 +109,41 @@ class Evolution:
             reverse=True
         )]
         
-        # Select top performers as parents
-        num_parents = int(len(self.population) * self.selection_pressure)
-        return sorted_population[:num_parents]
+        return sorted_population[:self.target_population_size]  # Select top performers as parents
 
     def _crossover(self, parent1: Individual, parent2: Individual) -> Individual:
         """
-        Perform crossover between two parent models
+        Perform crossover between two parents
         
         Args:
-            parent1: First parent model
-            parent2: Second parent model
+            parent1: First parent
+            parent2: Second parent
             
         Returns:
-            Child model
+            Child
         """
-        # TODO: implement crossover with a deep copy of the individual
-        raise NotImplementedError("Crossover method not implemented")
+        print(f"Crossover between {parent1.id} and {parent2.id}")
+        child = copy.deepcopy(parent1)
+        for crossover_fn, probability in self.crossover_fns_and_probabilities:
+            if random.random() < probability:
+                crossover_fn(child, parent2)
+        return child
 
-    def _mutate(self, model: Individual) -> Individual:
+    def _mutate(self, individual: Individual) -> Individual:
         """
-        Mutate a single model
+        Mutate a single individual
         
         Args:
-            model: Model to mutate
+            individual: Individual to mutate
             
         Returns:
-            Mutated model
+            Mutated individual
         """
-        # TODO: implement mutation with a deep copy of the individual
-        raise NotImplementedError("Mutation method not implemented")
+        print(f"Mutating {individual.id}")
+        for mutation_fn, probability in self.mutation_fns_and_probabilities:
+            if random.random() < probability:
+                mutation_fn(individual)
+        return individual
 
     def _log_generation(self, fitness_scores: list[float]):
         """
@@ -132,14 +157,14 @@ class Evolution:
         
         if max_fitness > self.best_fitness:
             self.best_fitness = max_fitness
-            self.best_model = self.population[fitness_scores.index(max_fitness)]
-        
+            self.best_individual = self.population[fitness_scores.index(max_fitness)]
+
         print(f"Generation {self.generation}:")
         print(f"  Max Fitness: {max_fitness:.4f}")
         print(f"  Avg Fitness: {avg_fitness:.4f}")
         print(f"  Best Fitness Overall: {self.best_fitness:.4f}")
 
-class TextDataset(torch.utils.data.Dataset):
+class TextDataset(torch.utils.data.Dataset):  # TODO this shouldn't be part of the evolution class, not abstracted enough
     def __init__(self, data, block_size):
         self.data = data
         self.block_size = block_size
@@ -171,11 +196,25 @@ if __name__ == "__main__":
 
     BLOCK_SIZE = 128
 
+    TARGET_POPULATION_SIZE = 10
+
     evolution = Evolution(
-        population=generate_initial_population(2, VOCAB_SIZE, BLOCK_SIZE),
-        fitness_fn=calculate_fitness,
-        mutation_rate=0.1,
-        selection_pressure=0.5,
-        block_size=BLOCK_SIZE
+        population=generate_initial_population(TARGET_POPULATION_SIZE, VOCAB_SIZE, BLOCK_SIZE),
+        # fitness_fn=calculate_fitness,
+        fitness_fn=lambda x, y, z: random.random(),
+        mutation_fns_and_probabilities=[
+            (mutate_batch_size, 0.3),
+            (mutate_learning_rate, 0.3),
+            (mutate_learning_rate_scheduler, 0.3),
+            (mutate_optimizer_parameters, 0.3),
+        ],
+        crossover_fns_and_probabilities=[
+            (crossover_batch_size, 0.3),
+            (crossover_learning_rate, 0.3),
+            (crossover_learning_rate_scheduler, 0.3),
+            (crossover_optimizer_parameters, 0.3),
+        ],
+        target_population_size=TARGET_POPULATION_SIZE,
+        block_size=BLOCK_SIZE  # TODO this shouldn't be part of the evolution class, not abstracted enough
     )
     evolution.run_evolution(10)

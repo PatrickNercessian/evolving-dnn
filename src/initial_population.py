@@ -4,7 +4,7 @@ from mingpt.model import GPT
 from mingpt.trainer import Trainer
 from mingpt.utils import CfgNode as CN
 
-from .core import get_graph_module
+from .core import get_graph
 from .individual import Individual
 from .individual_graph_module import IndividualGraphModule
 
@@ -27,13 +27,13 @@ def generate_initial_population(
     """
     population = []
     
-    for _ in range(population_size):
+    for i in range(population_size):
         model_config = create_random_gpt_config(vocab_size, block_size)
         train_config = create_random_train_config()
         print("model_config", model_config)
         print("train_config", train_config)
-        graph_module = get_graph_module(GPT(model_config))
-        population.append(Individual(IndividualGraphModule(graph_module), train_config))
+        graph_module = get_graph(GPT(model_config), None)
+        population.append(Individual(IndividualGraphModule(graph_module), train_config, i))
 
     return population
 
