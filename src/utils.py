@@ -7,7 +7,7 @@ from torch.fx.passes.shape_prop import ShapeProp
 import random
 
 
-def find_required_shapes(graph, node):
+def find_required_shapes(node):
     """
     Finds the required shapes for a given node in the graph.
     
@@ -73,3 +73,32 @@ def get_unique_name(graph, base_name: str) -> str:
         counter += 1
     
     return name
+
+def add_specific_node(graph, reference_node, module):
+    """
+    Helper function to add a new node to the graph after the reference node.
+    
+    Args:
+        graph: The FX graph
+        reference_node: The node after which the new node will be inserted
+        module: The PyTorch module to add
+    Returns:
+        graph: The modified graph
+        new_node: The newly added node
+    """
+    name = get_unique_name(graph, module.__class__.__name__)
+    graph.add_submodule(name, module)
+    
+    # Add node after reference_node
+    with graph.graph.inserting_after(reference_node):
+        new_node = graph.graph.call_module(
+            module_name=name,
+            args=(reference_node,),
+            kwargs={},
+        )
+    
+    # Update connections
+    reference_node.replace_all_uses_with(new_node)
+    new_node.args = (reference_node,)
+    
+    return graph, new_node
