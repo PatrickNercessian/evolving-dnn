@@ -1,15 +1,16 @@
+import random
+
 import torch
 import torch.nn as nn
-import math
-import torch.nn.functional as F
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
-from add import add_linear, add_pool, add_repeat
+
+from add import add
+from individual_graph_module import IndividualGraphModule
 from utils import find_required_shapes 
 
-from individual_graph_module import IndividualGraphModule
 
-def get_graph(model, input_shape):
+def get_graph(model: nn.Module, input_shape: tuple):
 
     """
     Takes a PyTorch model and returns its computation graph using torch.fx
@@ -42,7 +43,7 @@ def get_graph(model, input_shape):
     
     return graph
 
-def add_node(graph, reference_node, operation: str, **kwargs):
+def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operation: str, **kwargs):
     """
     Adds a new node to the graph after the reference node.
     
@@ -64,20 +65,18 @@ def add_node(graph, reference_node, operation: str, **kwargs):
     if operation == 'linear':
         # get the shape of the reference node from metadata
         reference_node_shape = reference_node.meta['tensor_meta'].shape
-        # add a linear layer to the graph
-        graph, new_node = add_linear(graph, reference_node, reference_node_shape[-1])
-        # get the shape of the new node from the module
-        new_node_shape = (graph.get_submodule(new_node.target).in_features, 
-                         graph.get_submodule(new_node.target).out_features)
+
+        new_node_shape = (reference_node_shape[-1], random.randint(1, 1000))  # Assign random shape to the new linear layer
         print(f"New node shape: {new_node_shape}")
-    
+        graph, new_node = add(graph, reference_node, nn.Linear(new_node_shape[0], new_node_shape[1]))
+
     # Add an adaptive pooling layer
     elif operation == 'pool':
         target_size = kwargs.get('target_size')
         if target_size is None:
             raise ValueError("target_size must be provided for pool operation")
             
-        graph, new_node = add_pool(graph, reference_node, target_size)
+        graph, new_node = add(graph, reference_node, nn.AdaptiveAvgPool1d(target_size))
         
         # Get shape of the new node
         new_node_shape = (target_size, target_size)  # For 1D pooling, in/out are same
@@ -90,8 +89,7 @@ def add_node(graph, reference_node, operation: str, **kwargs):
             
         # Get input size from reference node
         input_size = reference_node.meta['tensor_meta'].shape[-1]
-        
-        graph, new_node = add_repeat(graph, reference_node, input_size, target_size)
+        graph, new_node = add(graph, reference_node, nn.CircularPad1d((0, target_size - input_size)))
         
         # Get shape of the new node
         new_node_shape = (target_size, target_size)  # For repeat, in/out are same
@@ -111,7 +109,7 @@ def add_node(graph, reference_node, operation: str, **kwargs):
 
     return graph
 
-def remove_node(graph, reference_node):
+def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
     """
     Removes a node from the graph
     
@@ -148,7 +146,13 @@ def remove_node(graph, reference_node):
 
     return graph, input_node
 
-def adapt_connections(graph, new_node, new_node_shape: tuple[int, int], input_shape, output_shape):
+def adapt_connections(
+    graph: torch.fx.GraphModule,
+    new_node: torch.fx.Node,
+    new_node_shape: tuple,
+    input_shape: tuple,
+    output_shape: tuple
+):
     """
     Adapts the connections to/from a node to ensure all connected nodes have compatible shapes.
     
@@ -170,11 +174,11 @@ def adapt_connections(graph, new_node, new_node_shape: tuple[int, int], input_sh
             # Handle input size mismatch by adapting the input node
             if input_shape[-1] > new_node_shape[0]:
                 # Input is larger - add adaptive pooling to reduce size
-                graph, new_node = add_pool(graph, new_node.args[0], new_node_shape[0])
+                graph, new_node = add(graph, new_node.args[0], nn.AdaptiveAvgPool1d(new_node_shape[0]))
                 
             elif input_shape[-1] < new_node_shape[0]:
                 # Input is smaller - add repeat/broadcast to increase size
-                graph, new_node = add_repeat(graph, new_node.args[0], input_shape[-1], new_node_shape[0])
+                graph, new_node = add(graph, new_node.args[0], nn.CircularPad1d((0, new_node_shape[0] - input_shape[-1])))
 
     # check if the output node input shapes are compatible with the node to adapt from
     if output_shape is not None:
@@ -184,14 +188,10 @@ def adapt_connections(graph, new_node, new_node_shape: tuple[int, int], input_sh
             # Handle output size mismatch
             if new_node_shape[1] > output_shape[-1]:
                 # New node output is larger - add adaptive pooling
-                graph, new_node = add_pool(graph, new_node, output_shape[-1])
+                graph, new_node = add(graph, new_node, nn.AdaptiveAvgPool1d(output_shape[-1]))
                 
             elif new_node_shape[1] < output_shape[-1]:
                 # New node output is smaller - add repeat/broadcast
-                graph, new_node = add_repeat(graph, new_node, new_node_shape[1], output_shape[-1])
+                graph, new_node = add(graph, new_node, nn.CircularPad1d((0, output_shape[-1] - new_node_shape[1])))
     
     return graph
-
-
-
-

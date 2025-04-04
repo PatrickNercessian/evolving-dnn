@@ -4,7 +4,6 @@ import math
 import torch.nn.functional as F
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
-from add import add_linear
 from utils import find_required_shapes 
 from modelbank import CausalSelfAttention, simple_linear
 from core import get_graph, add_node, remove_node, adapt_connections
