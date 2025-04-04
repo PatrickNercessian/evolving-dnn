@@ -20,7 +20,7 @@ graph.graph.print_tabular()
 # loop through graph nodes and test find_required_shapes
 for i in graph.graph.nodes:
     print(i, end=" ")
-    print(find_required_shapes(graph, i))
+    print(find_required_shapes(i))
 
 print("--------------------------------")
 
@@ -36,7 +36,7 @@ graph.graph.print_tabular()
 # loop through graph nodes and test find_required_shapes
 for i in graph.graph.nodes:
     print(i, end=" ")
-    print(find_required_shapes(graph, i))
+    print(find_required_shapes(i))
 
 print("--------------------------------")
 
