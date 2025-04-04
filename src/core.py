@@ -7,7 +7,7 @@ from torch.fx.passes.shape_prop import ShapeProp
 
 from add import add
 from individual_graph_module import IndividualGraphModule
-from utils import find_required_shapes 
+from utils import find_required_shapes, get_unique_name
 
 
 def get_graph(model: nn.Module, input_shape: tuple):
@@ -60,6 +60,24 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
     
     # Get required shapes before making any modifications
     input_shape, output_shape = find_required_shapes(graph, reference_node)
+
+    def _add_specific_node(module: nn.Module):
+        name = get_unique_name(graph, module.__class__.__name__)
+        graph.add_submodule(name, module)
+        
+        # Add repeat node after reference_node
+        with graph.graph.inserting_after(reference_node):
+            new_node = graph.graph.call_module(
+                module_name=name,
+                args=(reference_node,),
+                kwargs={},
+            )
+        
+        # Update connections
+        reference_node.replace_all_uses_with(new_node)
+        new_node.args = (reference_node,)
+        
+        return graph, new_node
     
     # Add a linear layer to the graph
     if operation == 'linear':
@@ -68,7 +86,7 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
 
         new_node_shape = (reference_node_shape[-1], random.randint(1, 1000))  # Assign random shape to the new linear layer
         print(f"New node shape: {new_node_shape}")
-        graph, new_node = add(graph, reference_node, nn.Linear(new_node_shape[0], new_node_shape[1]))
+        graph, new_node = _add_specific_node(nn.Linear(new_node_shape[0], new_node_shape[1]))
 
     # Add an adaptive pooling layer
     elif operation == 'pool':
@@ -76,7 +94,7 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         if target_size is None:
             raise ValueError("target_size must be provided for pool operation")
             
-        graph, new_node = add(graph, reference_node, nn.AdaptiveAvgPool1d(target_size))
+        graph, new_node = _add_specific_node(nn.AdaptiveAvgPool1d(target_size))
         
         # Get shape of the new node
         new_node_shape = (target_size, target_size)  # For 1D pooling, in/out are same
@@ -89,7 +107,7 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
             
         # Get input size from reference node
         input_size = reference_node.meta['tensor_meta'].shape[-1]
-        graph, new_node = add(graph, reference_node, nn.CircularPad1d((0, target_size - input_size)))
+        graph, new_node = _add_specific_node(nn.CircularPad1d((0, target_size - input_size)))
         
         # Get shape of the new node
         new_node_shape = (target_size, target_size)  # For repeat, in/out are same
