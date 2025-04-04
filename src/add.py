@@ -105,3 +105,32 @@ def add_repeat(graph, reference_node, input_size: int, target_size: int):
     new_node.args = (reference_node,)
     
     return graph, new_node
+
+def add_skip(graph, reference_node, first_node):
+    """
+    Adds a skip connection to the graph after the reference node.
+
+    Args:
+        graph: The FX graph
+        reference_node: The node after which the new node will be inserted
+        first_node: The node to skip
+    Returns:
+        graph: The modified graph
+    """
+    # Create skip connection with unique name
+    name = get_unique_name(graph, 'skip')
+    
+    # Add skip connection node after reference_node
+    with graph.graph.inserting_after(reference_node):
+        new_node = graph.graph.call_function(
+            function_name=name,
+            args=(reference_node, first_node),
+            kwargs={},
+        )
+    
+    # Update connections
+    reference_node.replace_all_uses_with(new_node)
+    new_node.args = (reference_node,)
+
+    return graph, new_node
+

@@ -4,7 +4,7 @@ import math
 import torch.nn.functional as F
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
-from add import add_linear, add_pool, add_repeat
+from add import add_linear, add_pool, add_repeat, add_skip
 from utils import find_required_shapes 
 
 from individual_graph_module import IndividualGraphModule
@@ -95,6 +95,14 @@ def add_node(graph, reference_node, operation: str, **kwargs):
         
         # Get shape of the new node
         new_node_shape = (target_size, target_size)  # For repeat, in/out are same
+
+    # Add a skip connection
+    elif operation == 'skip':
+        first_node = kwargs.get('first_node')
+        if first_node is None:
+            raise ValueError("first_node must be provided for skip operation")
+        graph, new_node = add_skip(graph, reference_node, first_node)
+        new_node_shape = reference_node.meta['tensor_meta'].shape
 
     graph.graph.lint()
     graph.recompile()
