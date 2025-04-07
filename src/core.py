@@ -6,7 +6,7 @@ import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
 from individual_graph_module import IndividualGraphModule
-from utils import find_required_shapes, add_specific_node
+from utils import find_required_shapes, add_specific_node, add_skip_connection, adapt_node_shape
 
 
 def get_graph(model: nn.Module, input_shape: tuple):
@@ -98,7 +98,8 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         first_node = kwargs.get('first_node')
         if first_node is None:
             raise ValueError("first_node must be provided for skip operation")
-        graph, new_node = add_skip(graph, reference_node, first_node)
+        second_node = reference_node
+        graph, new_node = add_skip_connection(graph, second_node, first_node)
         new_node_shape = reference_node.meta['tensor_meta'].shape
 
     graph.graph.lint()
@@ -173,32 +174,42 @@ def adapt_connections(
         graph: The modified graph
     """
     
-    # check if the input node output shapes are compatible with the node to adapt from
-    if input_shape is not None:
+    # Special handling for skip connections (torch.add operations)
+    if new_node.target == torch.add:
+        # Get shapes of both input nodes
+        first_node = new_node.args[0]
+        second_node = new_node.args[1]
+        first_shape = first_node.meta['tensor_meta'].shape
+        second_shape = second_node.meta['tensor_meta'].shape
+        
+        # If shapes don't match, adapt both inputs to the larger shape
+        if first_shape[-1] != second_shape[-1]:
+            target_size = max(first_shape[-1], second_shape[-1])
+            
+            # Adapt first node if needed
+            if first_shape[-1] != target_size:
+                graph, first_node = adapt_node_shape(graph, first_node, first_shape[-1], target_size)
+            
+            # Adapt second node if needed
+            if second_shape[-1] != target_size:
+                graph, second_node = adapt_node_shape(graph, second_node, second_shape[-1], target_size)
+            
+            # Update the skip connection node's args
+            new_node.args = (first_node, second_node)
+            
+            # Update new_node_shape to reflect the adapted size
+            new_node_shape = (target_size, target_size)
+    
+    # For non-skip connections, handle input shape compatibility
+    elif input_shape is not None:
         if input_shape[-1] != new_node_shape[0]: # last dimension of input node output shape
             print(f"Input node output shape {input_shape[-1]} is not compatible with the node to adapt from {new_node_shape[0]}")
-            
-            # Handle input size mismatch by adapting the input node
-            if input_shape[-1] > new_node_shape[0]:
-                # Input is larger - add adaptive pooling to reduce size
-                graph, new_node = add_specific_node(graph, new_node.args[0], nn.AdaptiveAvgPool1d(new_node_shape[0]))
-                
-            elif input_shape[-1] < new_node_shape[0]:
-                # Input is smaller - add repeat/broadcast to increase size
-                graph, new_node = add_specific_node(graph, new_node.args[0], nn.CircularPad1d((0, new_node_shape[0] - input_shape[-1])))
+            graph, new_node = adapt_node_shape(graph, new_node.args[0], input_shape[-1], new_node_shape[0])
 
-    # check if the output node input shapes are compatible with the node to adapt from
+    # Handle output shape compatibility for all nodes
     if output_shape is not None:
         if output_shape[-1] != new_node_shape[1]:
             print(f"Output node input shape {output_shape[-1]} is not compatible with the node to adapt from {new_node_shape[1]}")
-            
-            # Handle output size mismatch
-            if new_node_shape[1] > output_shape[-1]:
-                # New node output is larger - add adaptive pooling
-                graph, new_node = add_specific_node(graph, new_node, nn.AdaptiveAvgPool1d(output_shape[-1]))
-                
-            elif new_node_shape[1] < output_shape[-1]:
-                # New node output is smaller - add repeat/broadcast
-                graph, new_node = add_specific_node(graph, new_node, nn.CircularPad1d((0, output_shape[-1] - new_node_shape[1])))
+            graph, new_node = adapt_node_shape(graph, new_node, new_node_shape[1], output_shape[-1])
     
     return graph

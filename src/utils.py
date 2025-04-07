@@ -102,3 +102,64 @@ def add_specific_node(graph, reference_node, module):
     new_node.args = (reference_node,)
     
     return graph, new_node
+
+def add_skip_connection(graph, second_node, first_node, torch_function=torch.add):
+    """
+    Adds a skip connection to the graph after the reference node.
+    
+    Args:
+        graph: The FX graph
+        second_node: The node after which the new node will be inserted
+        first_node: The node to skip
+    Returns:
+        graph: The modified graph
+        new_node: The newly added node
+    """
+    
+    # Verify first_node comes before second_node in graph
+    first_node_found = False
+    for node in graph.graph.nodes:
+        if node == first_node:
+            first_node_found = True
+        elif node == second_node:
+            if not first_node_found:
+                raise ValueError("Skip connection first_node must come before second_node in graph")
+            break
+
+    # Add skip connection node after reference_node
+    with graph.graph.inserting_after(second_node):
+        new_node = graph.graph.call_function(
+            torch_function,
+            args=(second_node, first_node),
+        )
+    
+    # Update connections
+    second_node.replace_all_uses_with(new_node)
+    new_node.args = (second_node, first_node)
+
+    return graph, new_node
+
+def adapt_node_shape(graph, node, current_size, target_size):
+    """
+    Adapts a node's output shape to match a target size using either adaptive pooling or circular padding.
+    
+    Args:
+        graph: The FX graph
+        node: The node whose shape needs to be adapted
+        current_size: Current size of the node's output
+        target_size: Desired size of the node's output
+    Returns:
+        graph: The modified graph
+        adapted_node: The node after shape adaptation
+    """
+    if current_size == target_size:
+        return graph, node
+        
+    if current_size < target_size:
+        # Need to increase size - use circular padding
+        graph, adapted_node = add_specific_node(graph, node, nn.CircularPad1d((0, target_size - current_size)))
+    else:
+        # Need to decrease size - use adaptive pooling
+        graph, adapted_node = add_specific_node(graph, node, nn.AdaptiveAvgPool1d(target_size))
+        
+    return graph, adapted_node
