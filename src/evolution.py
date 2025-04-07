@@ -53,7 +53,7 @@ class Evolution:
             
             # Calculate fitness for all individuals
             fitness_scores = [self.fitness_fn(individual) for individual in self.population]
-
+            
             # Select parents for next generation
             parents = self._selection(fitness_scores)
             for parent in parents:
@@ -142,7 +142,7 @@ class Evolution:
         if max_fitness > self.best_fitness:
             self.best_fitness = max_fitness
             self.best_individual = self.population[fitness_scores.index(max_fitness)]
-        
+
         print(f"Generation {self.generation}:")
         print(f"  Max Fitness: {max_fitness:.4f}")
         print(f"  Avg Fitness: {avg_fitness:.4f}")
