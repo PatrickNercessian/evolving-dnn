@@ -126,11 +126,10 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         branch2_module = nn.Linear(branch2_shape[0], branch2_shape[1])
         
         # Use the utility function to add branch nodes
-        graph, new_node = add_branch_nodes(graph, reference_node, branch1_module, branch2_module)
+        graph, new_node, skip_connection_output_shape = add_branch_nodes(graph, reference_node, branch1_module, branch2_module)
         
-        # The new node shape will be determined by the utility function
-        # We don't need to set new_node_shape here as it will be handled by adapt_connections
-        new_node_shape = None
+        # Determine the shape of the new node
+        new_node_shape = skip_connection_output_shape
 
     graph.graph.lint()
     graph.recompile()
@@ -143,7 +142,11 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
 
     # Run shape propagation again to update all shape metadata
     example_input = torch.randn(next(iter(graph.graph.nodes)).meta['tensor_meta'].shape)
-    ShapeProp(graph).propagate(example_input)
+    try:
+        ShapeProp(graph).propagate(example_input)
+    except Exception as e:
+        print(f"Error during shape propagation: {e}")
+        print(f"Graph: {graph}")
 
     return graph
 
@@ -241,7 +244,7 @@ def adapt_connections(
             graph, new_node = adapt_node_shape(graph, new_node.args[0], input_shape[-1], new_node_shape[0])
 
     # Handle output shape compatibility for all nodes
-    if output_shape is not None and new_node_shape is not None:
+    if output_shape is not None:
         if output_shape[-1] != new_node_shape[1]:
             print(f"Output node input shape {output_shape[-1]} is not compatible with the node to adapt from {new_node_shape[1]}")
             graph, new_node = adapt_node_shape(graph, new_node, new_node_shape[1], output_shape[-1])

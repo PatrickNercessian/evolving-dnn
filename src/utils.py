@@ -190,14 +190,14 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
     # Create the first branch node without replacing connections
     with graph.graph.inserting_after(reference_node):
         branch1_node = graph.graph.call_module(
-            branch1_name, 
+            module_name=branch1_name, 
             args=(reference_node,)
         )
     
     # Create the second branch node without replacing connections
     with graph.graph.inserting_after(branch1_node):
         branch2_node = graph.graph.call_module(
-            branch2_name, 
+            module_name=branch2_name, 
             args=(reference_node,)
         )
     
@@ -227,7 +227,14 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
 
     # Run shape propagation to update metadata for the branch nodes
     example_input = torch.randn(reference_node_shape)
-    ShapeProp(graph).propagate(example_input)
+    try:
+        ShapeProp(graph).propagate(example_input)
+    except Exception as e:
+        print(f"Error during shape propagation: {e}")
+        print(f"Graph: {graph}")
+
+    # Get the inferred output of the skip connection from the shape propagation
+    skip_connection_output_shape = final_branch2_node.meta['tensor_meta'].shape
 
     # Create a skip connection between the two branch nodes using the final adapted nodes
     with graph.graph.inserting_after(final_branch2_node):
@@ -242,4 +249,4 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
     branch1_node.args = (reference_node,)
     branch2_node.args = (reference_node,)
 
-    return graph, new_node
+    return graph, new_node, skip_connection_output_shape
