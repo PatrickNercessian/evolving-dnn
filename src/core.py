@@ -93,6 +93,11 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         # Get shape of the new node
         new_node_shape = (target_size, target_size)  # For repeat, in/out are same
 
+    # Add a flatten layer, that flattens every dimension except the batch dimension 
+    elif operation == 'flatten':
+        graph, new_node = add_specific_node(graph, reference_node, nn.Flatten(start_dim=1, end_dim=-1))
+        new_node_shape = (reference_node.meta['tensor_meta'].shape[0], -1)
+
     # Add a skip connection
     elif operation == 'skip':
         first_node = kwargs.get('first_node')
