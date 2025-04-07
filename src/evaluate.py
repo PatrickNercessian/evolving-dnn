@@ -17,7 +17,7 @@ def calculate_fitness(
     """
     Calculate fitness of a GPT model by training it and returning negative loss
     (negative because evolution maximizes fitness, but we want to minimize loss)
-
+    
     Args:
         model: The GPT model to evaluate
         data_loader: DataLoader providing training examples
