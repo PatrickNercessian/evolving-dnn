@@ -152,6 +152,10 @@ def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
     graph.graph.lint()
     graph.recompile()
 
+    # Run shape propagation again to update all shape metadata
+    example_input = torch.randn(next(iter(graph.graph.nodes)).meta['tensor_meta'].shape)
+    ShapeProp(graph).propagate(example_input)
+
     return graph, input_node
 
 def adapt_connections(
