@@ -6,7 +6,7 @@ import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
 from individual_graph_module import IndividualGraphModule
-from utils import find_required_shapes, add_specific_node, add_skip_connection, adapt_node_shape
+from utils import find_required_shapes, add_specific_node, add_skip_connection, adapt_node_shape, add_branch_nodes
 
 
 def get_graph(model: nn.Module, input_shape: tuple):
@@ -107,6 +107,31 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         graph, new_node = add_skip_connection(graph, second_node, first_node)
         new_node_shape = reference_node.meta['tensor_meta'].shape
 
+    # Add branch node, that branches the input into two paths
+    elif operation == 'branch':
+        # Special case where we add two new nodes to the graph after the reference node BUT DO NOT CONNECT THEM TO USERS YET
+        # We then add a skip connection between the two new nodes
+        # Then we connect the skip connection to the users of the reference node
+        # y = f(x) -> y = h(g(x), k(x))
+        
+        # Get the shape of the reference node from metadata
+        reference_node_shape = reference_node.meta['tensor_meta'].shape
+        
+        # Create two new nodes with random shapes
+        branch1_shape = (reference_node_shape[-1], random.randint(1, 1000))
+        branch2_shape = (reference_node_shape[-1], random.randint(1, 1000))
+        
+        # Create the branch modules
+        branch1_module = nn.Linear(branch1_shape[0], branch1_shape[1])
+        branch2_module = nn.Linear(branch2_shape[0], branch2_shape[1])
+        
+        # Use the utility function to add branch nodes
+        graph, new_node = add_branch_nodes(graph, reference_node, branch1_module, branch2_module)
+        
+        # The new node shape will be determined by the utility function
+        # We don't need to set new_node_shape here as it will be handled by adapt_connections
+        new_node_shape = None
+
     graph.graph.lint()
     graph.recompile()
         
@@ -166,7 +191,7 @@ def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
 def adapt_connections(
     graph: torch.fx.GraphModule,
     new_node: torch.fx.Node,
-    new_node_shape: tuple,
+    new_node_shape: tuple | None,
     input_shape: tuple,
     output_shape: tuple
 ):
@@ -176,7 +201,7 @@ def adapt_connections(
     Args:
         graph: The FX graph
         new_node: The node whose connections need adaptation
-        new_node_shape: The shape of the new node
+        new_node_shape: The shape of the new node, can be None if the new node is a skip connection
         input_shape: The shape of the input node (pre-computed)
         output_shape: The shape of the output node (pre-computed)
     Returns:
@@ -216,7 +241,7 @@ def adapt_connections(
             graph, new_node = adapt_node_shape(graph, new_node.args[0], input_shape[-1], new_node_shape[0])
 
     # Handle output shape compatibility for all nodes
-    if output_shape is not None:
+    if output_shape is not None and new_node_shape is not None:
         if output_shape[-1] != new_node_shape[1]:
             print(f"Output node input shape {output_shape[-1]} is not compatible with the node to adapt from {new_node_shape[1]}")
             graph, new_node = adapt_node_shape(graph, new_node, new_node_shape[1], output_shape[-1])
