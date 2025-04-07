@@ -4,9 +4,9 @@ from mingpt.model import GPT
 from mingpt.trainer import Trainer
 from mingpt.utils import CfgNode as CN
 
-from .core import get_graph
-from .individual import Individual
-from .individual_graph_module import IndividualGraphModule
+from src.core import get_graph_module
+from src.individual import Individual
+from src.individual_graph_module import IndividualGraphModule
 
 def generate_initial_population(
     population_size: int,
@@ -34,7 +34,7 @@ def generate_initial_population(
         train_config = create_random_train_config(**train_config_params)
         print("model_config", model_config)
         print("train_config", train_config)
-        graph_module = get_graph(GPT(model_config), None)
+        graph_module = get_graph_module(GPT(model_config))
         population.append(Individual(IndividualGraphModule(graph_module), train_config, i))
 
     return population
@@ -106,7 +106,7 @@ def create_random_train_config(
     )
     train_config.weight_decay = random.uniform(weight_decay_bounds[0], weight_decay_bounds[1])
     train_config.grad_norm_clip = random.uniform(grad_norm_clip_bounds[0], grad_norm_clip_bounds[1])
-    train_config.num_workers = 4
+    train_config.num_workers = 0  # I checked: this takes <0.5% of the total train step time with num_workers=0
     train_config.max_iters = max_iters
 
     return train_config
