@@ -71,14 +71,14 @@ def calculate_perplexity(
                 break
             idx, targets = batch
             idx, targets = idx.to(device), targets.to(device)
-
+            
             # Forward pass
             logits, loss = model(idx, targets)
-
+            
             # Accumulate loss (weighted by number of tokens)
             total_loss += loss.item() * targets.numel()
             total_tokens += targets.numel()
-
+    
     # Calculate average loss
     avg_loss = total_loss / total_tokens if total_tokens > 0 else float('inf')
     print("avg_loss", avg_loss)

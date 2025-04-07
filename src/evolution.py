@@ -142,7 +142,7 @@ class Evolution:
         if max_fitness > self.best_fitness:
             self.best_fitness = max_fitness
             self.best_individual = self.population[fitness_scores.index(max_fitness)]
-
+        
         print(f"Generation {self.generation}:")
         print(f"  Max Fitness: {max_fitness:.4f}")
         print(f"  Avg Fitness: {avg_fitness:.4f}")
