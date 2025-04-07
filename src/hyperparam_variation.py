@@ -1,6 +1,4 @@
-import random
 import numpy as np
-from typing import Union
 from .individual import Individual
 
 def mutate_batch_size(individual: Individual) -> Individual:
@@ -72,7 +70,7 @@ def crossover_batch_size(parent1_copy: Individual, parent2: Individual) -> Indiv
     """
     Average the batch size from two parents to create a child.
     """
-    new_batch_size = 0.5 * (parent1_copy.train_config.batch_size + parent2.train_config.batch_size)
+    new_batch_size = int(0.5 * (parent1_copy.train_config.batch_size + parent2.train_config.batch_size))
     print(f"Crossover batch size from {parent1_copy.train_config.batch_size} and {parent2.train_config.batch_size} to {new_batch_size}")
     parent1_copy.train_config.batch_size = new_batch_size
 

@@ -4,12 +4,6 @@ from typing import Callable
 import torch
 
 from .individual import Individual
-from .hyperparam_variation import (
-    mutate_batch_size, crossover_batch_size,
-    mutate_learning_rate, crossover_learning_rate,
-    mutate_learning_rate_scheduler, crossover_learning_rate_scheduler,
-    mutate_optimizer_parameters, crossover_optimizer_parameters,
-)
 
 class Evolution:
     def __init__(
@@ -20,6 +14,7 @@ class Evolution:
         mutation_fns_and_probabilities: list[tuple[Callable[[Individual], Individual], float]] = [],
         crossover_fns_and_probabilities: list[tuple[Callable[[Individual, Individual], Individual], float]] = [],
         target_population_size: bool = 100,
+        num_children_per_generation: int = 100,
         block_size: int = 128,
     ):
         """
@@ -39,6 +34,7 @@ class Evolution:
         self.mutation_fns_and_probabilities = mutation_fns_and_probabilities
         self.crossover_fns_and_probabilities = crossover_fns_and_probabilities
         self.target_population_size = target_population_size
+        self.num_children_per_generation = num_children_per_generation
         self.block_size = block_size
         self.generation = 0
         self.best_fitness = float('-inf')
@@ -56,7 +52,7 @@ class Evolution:
             self.generation = gen
             
             # Calculate fitness for all individuals
-            fitness_scores = self._evaluate_population()
+            fitness_scores = [self.fitness_fn(individual) for individual in self.population]
 
             # Select parents for next generation
             parents = self._selection(fitness_scores)
@@ -64,8 +60,8 @@ class Evolution:
                 print(f"Parent {parent.id} has train config {parent.train_config}")
 
             # Create new population through crossover and mutation
-            new_population = []
-            while len(new_population) < len(self.population):
+            new_children = []
+            while len(new_children) < self.num_children_per_generation:
                 parent1, parent2 = random.sample(parents, 2)  # TODO should this sample with or without replacement?
                 if random.random() < self.crossover_instead_of_mutation_rate:
                     child = self._crossover(parent1, parent2)
@@ -73,24 +69,12 @@ class Evolution:
                     child = self._mutate(copy.deepcopy(parent1))
                 child.id = self.id_counter
                 self.id_counter += 1
-                new_population.append(child)
+                new_children.append(child)
             
-            self.population = new_population
+            self.population.extend(new_children)
             
             # Log progress
             self._log_generation(fitness_scores)
-
-    def _evaluate_population(self) -> list[float]:
-        """
-        Calculate fitness scores for entire population
-        
-        Returns:
-            List of fitness scores corresponding to each individual
-        """
-
-        train_dataset = TextDataset(data, self.block_size)  # TODO this shouldn't be part of the evolution class, not abstracted enough
-        # TODO: add validation dataset
-        return [self.fitness_fn(individual, train_dataset, train_dataset) for individual in self.population]
 
     def _selection(self, fitness_scores: list[float]) -> list[Individual]:
         """
@@ -163,58 +147,3 @@ class Evolution:
         print(f"  Max Fitness: {max_fitness:.4f}")
         print(f"  Avg Fitness: {avg_fitness:.4f}")
         print(f"  Best Fitness Overall: {self.best_fitness:.4f}")
-
-class TextDataset(torch.utils.data.Dataset):  # TODO this shouldn't be part of the evolution class, not abstracted enough
-    def __init__(self, data, block_size):
-        self.data = data
-        self.block_size = block_size
-
-    def __len__(self):
-        return len(self.data) - self.block_size
-
-    def __getitem__(self, idx):
-        # return a chunk of data and the next token as target
-        x = self.data[idx:idx + self.block_size]
-        y = self.data[idx + 1:idx + self.block_size + 1]
-        return x, y
-
-if __name__ == "__main__":
-    from src.bpe import tokenize_string, VOCAB_SIZE
-    from src.initial_population import generate_initial_population
-    from src.evaluate import calculate_fitness
-
-    import os
-
-    if os.path.exists('tokenized_data.pt'):
-        data = torch.load('tokenized_data.pt')  # Save the tokenized data tensor to a file
-    else:
-        # Load, tokenize and save the input text
-        with open('mingpt/input.txt', 'r', encoding='utf-8') as f:
-            text = f.read()
-        data = tokenize_string(text)
-        torch.save(data, 'tokenized_data.pt')
-
-    BLOCK_SIZE = 128
-
-    TARGET_POPULATION_SIZE = 10
-
-    evolution = Evolution(
-        population=generate_initial_population(TARGET_POPULATION_SIZE, VOCAB_SIZE, BLOCK_SIZE),
-        # fitness_fn=calculate_fitness,
-        fitness_fn=lambda x, y, z: random.random(),
-        mutation_fns_and_probabilities=[
-            (mutate_batch_size, 0.3),
-            (mutate_learning_rate, 0.3),
-            (mutate_learning_rate_scheduler, 0.3),
-            (mutate_optimizer_parameters, 0.3),
-        ],
-        crossover_fns_and_probabilities=[
-            (crossover_batch_size, 0.3),
-            (crossover_learning_rate, 0.3),
-            (crossover_learning_rate_scheduler, 0.3),
-            (crossover_optimizer_parameters, 0.3),
-        ],
-        target_population_size=TARGET_POPULATION_SIZE,
-        block_size=BLOCK_SIZE  # TODO this shouldn't be part of the evolution class, not abstracted enough
-    )
-    evolution.run_evolution(10)
