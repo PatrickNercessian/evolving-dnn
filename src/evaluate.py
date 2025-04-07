@@ -23,7 +23,7 @@ def calculate_fitness(
         data_loader: DataLoader providing training examples
         num_train_steps: Number of training steps to perform
         device: Device to train on
-
+        
     Returns:
         float: Fitness score (higher is better)
     """
