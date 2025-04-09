@@ -53,16 +53,17 @@ class Evolution:
             
             # Calculate fitness for all individuals
             fitness_scores = [self.fitness_fn(individual) for individual in self.population]
-            
+            self._log_generation(fitness_scores)
+
             # Select parents for next generation
-            parents = self._selection(fitness_scores)
-            for parent in parents:
+            self.population = self._selection(fitness_scores)
+            for parent in self.population:  # TODO remove this
                 print(f"Parent {parent.id} has train config {parent.train_config}")
 
             # Create new population through crossover and mutation
             new_children = []
             while len(new_children) < self.num_children_per_generation:
-                parent1, parent2 = random.sample(parents, 2)  # TODO should this sample with or without replacement?
+                parent1, parent2 = random.sample(self.population, 2)  # TODO should this sample with or without replacement?
                 if random.random() < self.crossover_instead_of_mutation_rate:
                     child = self._crossover(parent1, parent2)
                 else:
@@ -72,9 +73,6 @@ class Evolution:
                 new_children.append(child)
             
             self.population.extend(new_children)
-            
-            # Log progress
-            self._log_generation(fitness_scores)
 
     def _selection(self, fitness_scores: list[float]) -> list[Individual]:
         """
@@ -142,8 +140,10 @@ class Evolution:
         if max_fitness > self.best_fitness:
             self.best_fitness = max_fitness
             self.best_individual = self.population[fitness_scores.index(max_fitness)]
-
+        
         print(f"Generation {self.generation}:")
         print(f"  Max Fitness: {max_fitness:.4f}")
         print(f"  Avg Fitness: {avg_fitness:.4f}")
+        print(f"  Fitnesses: {fitness_scores}")
         print(f"  Best Fitness Overall: {self.best_fitness:.4f}")
+        print(f"  Best Individual (id: {self.best_individual.id}): {self.best_individual.train_config}")
