@@ -27,6 +27,8 @@ class Evolution:
             mutation_fns_and_probabilities: List of mutation functions and their respective probabilities if mutation occurs
             crossover_fns_and_probabilities: List of crossover functions and their respective probabilities if crossover occurs
             target_population_size: Population size to maintain after selection
+            num_children_per_generation: Number of children to generate per generation
+            block_size: Block size for the model
         """
         self.population = population
         self.fitness_fn = fitness_fn
