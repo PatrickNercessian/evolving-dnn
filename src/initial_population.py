@@ -1,7 +1,6 @@
 import random
 
 from mingpt.model import GPT
-from mingpt.trainer import Trainer
 from mingpt.utils import CfgNode as CN
 
 from src.core import get_graph_module

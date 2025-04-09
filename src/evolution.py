@@ -1,7 +1,6 @@
 import copy
 import random
 from typing import Callable
-import torch
 
 from .individual import Individual
 
