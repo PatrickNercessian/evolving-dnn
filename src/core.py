@@ -127,11 +127,9 @@ def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
     # Remove the node from the graph
     reference_node.replace_all_uses_with(input_node)
     
-    # Delete the submodule
-    delattr(graph, reference_node.target)
-    
     graph.graph.erase_node(reference_node)
     
+    graph.delete_all_unused_submodules()
 
     # Adapt connections between input node and its new users
     # In this case, the new node is the input node, so new_node input is always correct already
