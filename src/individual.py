@@ -7,6 +7,7 @@ class Individual:
         self.graph_module = graph_module
         self.train_config = train_config
         self.id = id
+        self.fitness = None
 
     def __str__(self):
         return f"graph_module={self.graph_module}, train_config={self.train_config})"

@@ -49,15 +49,14 @@ class Evolution:
         Args:
             num_generations: Number of generations to evolve
         """
+        for individual in self.population:  # evaluate fitness for initial population
+            individual.fitness = self.fitness_fn(individual)
+        
         for gen in range(num_generations):
             self.generation = gen
+            self._log_generation()
+            self._selection()
             
-            # Calculate fitness for all individuals
-            fitness_scores = [self.fitness_fn(individual) for individual in self.population]
-            self._log_generation(fitness_scores)
-
-            # Select parents for next generation
-            self.population = self._selection(fitness_scores)
             for parent in self.population:  # TODO remove this
                 print(f"Parent {parent.id} has train config {parent.train_config}")
 
@@ -70,29 +69,22 @@ class Evolution:
                 else:
                     child = self._mutate(copy.deepcopy(parent1))
                 child.id = self.id_counter
+                child.fitness = self.fitness_fn(child)
                 self.id_counter += 1
                 new_children.append(child)
             
             self.population.extend(new_children)
 
-    def _selection(self, fitness_scores: list[float]) -> list[Individual]:
-        """
-        Select individuals for breeding based on fitness scores
-        
-        Args:
-            fitness_scores: List of fitness scores for current population
-            
-        Returns:
-            List of selected parents
-        """
+    def _selection(self) -> list[Individual]:
+        """Select individuals for breeding based on fitness scores"""
         # Sort population by fitness
-        sorted_population = [x for _, x in sorted(
-            zip(fitness_scores, self.population),
-            key=lambda pair: pair[0],
+        sorted_population = sorted(
+            self.population,
+            key=lambda individual: individual.fitness,
             reverse=True
-        )]
+        )
         
-        return sorted_population[:self.target_population_size]  # Select top performers as parents
+        self.population = sorted_population[:self.target_population_size]  # Select top performers as parents
 
     def _crossover(self, parent1: Individual, parent2: Individual) -> Individual:
         """
@@ -128,23 +120,26 @@ class Evolution:
                 mutation_fn(individual)
         return individual
 
-    def _log_generation(self, fitness_scores: list[float]):
-        """
-        Log the progress of evolution
+    def _log_generation(self):
+        """Log the progress of evolution"""
+        current_best_fitness_in_gen = float('-inf')
+        current_best_individual_in_gen = None
+        fitness_sum = 0
         
-        Args:
-            fitness_scores: List of fitness scores for current generation
-        """
-        max_fitness = max(fitness_scores)
-        avg_fitness = sum(fitness_scores) / len(fitness_scores)
+        for individual in self.population:
+            fitness_sum += individual.fitness
+            if individual.fitness > current_best_fitness_in_gen:
+                current_best_fitness_in_gen = individual.fitness
+                current_best_individual_in_gen = individual
         
-        if max_fitness > self.best_fitness:
-            self.best_fitness = max_fitness
-            self.best_individual = self.population[fitness_scores.index(max_fitness)]
+        avg_fitness = fitness_sum / len(self.population)
+        
+        if current_best_fitness_in_gen > self.best_fitness:
+            self.best_fitness = current_best_fitness_in_gen
+            self.best_individual = current_best_individual_in_gen
         
         print(f"Generation {self.generation}:")
-        print(f"  Max Fitness: {max_fitness:.4f}")
-        print(f"  Avg Fitness: {avg_fitness:.4f}")
-        print(f"  Fitnesses: {fitness_scores}")
-        print(f"  Best Fitness Overall: {self.best_fitness:.4f}")
-        print(f"  Best Individual (id: {self.best_individual.id}): {self.best_individual.train_config}")
+        print(f"  Max Fitness in Gen: {current_best_fitness_in_gen:.4f}")
+        print(f"  Avg Fitness in Gen: {avg_fitness:.4f}")
+        if self.best_individual:
+            print(f"  Best Individual Overall (fitness: {self.best_individual.fitness}, id: {self.best_individual.id}): {self.best_individual.train_config}")
