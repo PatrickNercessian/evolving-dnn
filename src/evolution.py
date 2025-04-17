@@ -2,7 +2,7 @@ import copy
 import random
 from typing import Callable
 
-from .individual import Individual
+from src.individual import Individual
 
 class Evolution:
     def __init__(

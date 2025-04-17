@@ -1,6 +1,6 @@
 from mingpt.utils import CfgNode as CN
 
-from .individual_graph_module import IndividualGraphModule
+from src.individual_graph_module import IndividualGraphModule
 
 class Individual:
     def __init__(self, graph_module: IndividualGraphModule, train_config: CN, id: int):

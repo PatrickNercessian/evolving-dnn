@@ -1,5 +1,5 @@
 import numpy as np
-from .individual import Individual
+from src.individual import Individual
 
 def mutate_batch_size(individual: Individual) -> Individual:
     """
