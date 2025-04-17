@@ -3,7 +3,7 @@ import random
 from mingpt.model import GPT
 from mingpt.utils import CfgNode as CN
 
-from src.core import get_graph_module
+from src.core import get_graph
 from src.individual import Individual
 from src.individual_graph_module import IndividualGraphModule
 
@@ -33,7 +33,7 @@ def generate_initial_population(
         train_config = create_random_train_config(**train_config_params)
         print("model_config", model_config)
         print("train_config", train_config)
-        graph_module = get_graph_module(GPT(model_config))
+        graph_module = get_graph(GPT(model_config))
         population.append(Individual(IndividualGraphModule(graph_module), train_config, i))
 
     return population
