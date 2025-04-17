@@ -1,17 +1,17 @@
 import random
 
 from mingpt.model import GPT
-from mingpt.trainer import Trainer
 from mingpt.utils import CfgNode as CN
 
-from .core import get_graph_module
-from .individual import Individual
-from .individual_graph_module import IndividualGraphModule
+from src.core import get_graph_module
+from src.individual import Individual
+from src.individual_graph_module import IndividualGraphModule
 
 def generate_initial_population(
-    population_size,
-    vocab_size,
-    block_size,
+    population_size: int,
+    vocab_size: int,
+    gpt_config_params: dict,
+    train_config_params: dict,
 ):
     """
     Generate an initial population of GPT models with random configurations
@@ -27,22 +27,23 @@ def generate_initial_population(
     """
     population = []
     
-    for _ in range(population_size):
-        model_config = create_random_gpt_config(vocab_size, block_size)
-        train_config = create_random_train_config()
+    for i in range(population_size):
+        print(f"Generating individual {i+1} of {population_size}")
+        model_config = create_random_gpt_config(vocab_size, **gpt_config_params)
+        train_config = create_random_train_config(**train_config_params)
         print("model_config", model_config)
         print("train_config", train_config)
         graph_module = get_graph_module(GPT(model_config))
-        population.append(Individual(IndividualGraphModule(graph_module), train_config))
+        population.append(Individual(IndividualGraphModule(graph_module), train_config, i))
 
     return population
 
 def create_random_gpt_config(
-    vocab_size,
-    block_size,
-    layer_bounds=(3, 12),
-    head_bounds=(4, 12),
-    embed_bounds=(128, 768),
+    vocab_size: int,
+    block_size: int = 128,
+    layer_bounds: tuple[int, int] = (3, 12),
+    head_bounds: tuple[int, int] = (4, 12),
+    embed_bounds: tuple[int, int] = (128, 768),
 ):
     """
     Create a random GPT configuration within specified bounds
@@ -92,9 +93,10 @@ def create_random_train_config(
     weight_decay_bounds=(0.0, 0.1),
     grad_norm_clip_bounds=(0.0, 1.0),
     max_iters=5000,
+    device='auto',
 ):
     train_config = CN()
-    train_config.device = 'auto'
+    train_config.device = device
     train_config.batch_size = random.randint(batch_size_bounds[0], batch_size_bounds[1])
     train_config.learning_rate = random.uniform(learning_rate_bounds[0], learning_rate_bounds[1])
     train_config.betas = (
@@ -103,7 +105,7 @@ def create_random_train_config(
     )
     train_config.weight_decay = random.uniform(weight_decay_bounds[0], weight_decay_bounds[1])
     train_config.grad_norm_clip = random.uniform(grad_norm_clip_bounds[0], grad_norm_clip_bounds[1])
-    train_config.num_workers = 0
+    train_config.num_workers = 0  # I checked: this takes <0.5% of the total train step time with num_workers=0
     train_config.max_iters = max_iters
 
     return train_config

@@ -1,4 +1,3 @@
-
 import os
 import sys
 import json
@@ -101,3 +100,8 @@ class CfgNode:
             # overwrite the attribute
             print("command line overwriting config attribute %s with %s" % (key, val))
             setattr(obj, leaf_key, val)
+
+    def __deepcopy__(self, memo):
+        """Create a deep copy of the config node"""
+        from copy import deepcopy
+        return CfgNode(**{k: deepcopy(v, memo) for k, v in self.__dict__.items()})
