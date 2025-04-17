@@ -74,32 +74,51 @@ def get_unique_name(graph, base_name: str) -> str:
     
     return name
 
-def add_specific_node(graph, reference_node, module):
+def add_specific_node(graph, reference_node, module_or_function, kwargs=None):
     """
     Helper function to add a new node to the graph after the reference node.
+    Supports both PyTorch modules and functions.
     
     Args:
         graph: The FX graph
         reference_node: The node after which the new node will be inserted
-        module: The PyTorch module to add
+        module_or_function: The PyTorch module or function to add
+        kwargs: Optional keyword arguments for the function call (only used for functions)
     Returns:
         graph: The modified graph
         new_node: The newly added node
     """
-    name = get_unique_name(graph, module.__class__.__name__)
-    graph.add_submodule(name, module)
-    
-    # Add node after reference_node
-    with graph.graph.inserting_after(reference_node):
-        new_node = graph.graph.call_module(
-            module_name=name,
-            args=(reference_node,),
-            kwargs={},
-        )
+    if kwargs is None:
+        kwargs = {}
+        
+    # Check if we're adding a module or a function
+    if isinstance(module_or_function, nn.Module):
+        # Add a module
+        name = get_unique_name(graph, module_or_function.__class__.__name__)
+        graph.add_submodule(name, module_or_function)
+        
+        # Add node after reference_node
+        with graph.graph.inserting_after(reference_node):
+            new_node = graph.graph.call_module(
+                module_name=name,
+                args=(reference_node,),
+                kwargs=kwargs,
+            )
+    else:
+        # Add a function
+        with graph.graph.inserting_after(reference_node):
+            new_node = graph.graph.call_function(
+                module_or_function,
+                args=(reference_node,) if not isinstance(reference_node, tuple) else reference_node,
+                kwargs=kwargs,
+            )
     
     # Update connections
     reference_node.replace_all_uses_with(new_node)
-    new_node.args = (reference_node,)
+    if isinstance(reference_node, tuple):
+        new_node.args = reference_node
+    else:
+        new_node.args = (reference_node,)
     
     return graph, new_node
 
@@ -141,7 +160,7 @@ def add_skip_connection(graph, second_node, first_node, torch_function=torch.add
 
 def adapt_node_shape(graph, node, current_size, target_size):
     """
-    Adapts a node's output shape to match a target size using either adaptive pooling or circular padding.
+    Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
     
     Args:
         graph: The FX graph
@@ -161,11 +180,41 @@ def adapt_node_shape(graph, node, current_size, target_size):
     
     if len(current_size) == 1:
         if current_size < target_size:
-            # Need to increase size - use circular padding
-            graph, adapted_node = add_specific_node(graph, node, nn.CircularPad1d((0, target_size[0] - current_size[0])))
+            length_multiplier = target_size[0] // current_size[0]
+            remainder = target_size[0] % current_size[0]
+            
+            if length_multiplier > 1:
+                # First repeat the tensor as many times as possible
+                graph, repeat_node = add_specific_node(
+                    graph, 
+                    node, 
+                    torch.repeat_interleave, 
+                    kwargs={"repeats": length_multiplier, "dim": 1}
+                )
+                
+                if remainder > 0:
+                    # Then use circular padding for the remainder
+                    graph, adapted_node = add_specific_node(
+                        graph, 
+                        repeat_node, 
+                        nn.CircularPad1d((0, remainder))
+                    )
+                else:
+                    adapted_node = repeat_node
+            else:
+                # If we only need to wrap once, just use circular padding
+                graph, adapted_node = add_specific_node(
+                    graph, 
+                    node, 
+                    nn.CircularPad1d((0, target_size[0] - current_size[0]))
+                )
         else:
             # Need to decrease size - use adaptive pooling
-            graph, adapted_node = add_specific_node(graph, node, nn.AdaptiveAvgPool1d(target_size[0]))
+            graph, adapted_node = add_specific_node(
+                graph, 
+                node, 
+                nn.AdaptiveAvgPool1d(target_size[0])
+            )
 
         return graph, adapted_node
     
@@ -175,17 +224,55 @@ def adapt_node_shape(graph, node, current_size, target_size):
         current_total = math.prod(current_size)
 
         # Add flatten node
-        graph, flatten_node = add_specific_node(graph, node, nn.Flatten(start_dim=1, end_dim=-1))
+        graph, flatten_node = add_specific_node(
+            graph, 
+            node, 
+            nn.Flatten(start_dim=1, end_dim=-1)
+        )
 
         if current_total < target_total:
-            # Need to increase size - use circular padding
-            graph, adapted_node = add_specific_node(graph, flatten_node, nn.CircularPad1d((0, target_total - current_total)))
+            length_multiplier = target_total // current_total
+            remainder = target_total % current_total
+            
+            if length_multiplier > 1:
+                # First repeat the tensor as many times as possible
+                graph, repeat_node = add_specific_node(
+                    graph, 
+                    flatten_node, 
+                    torch.repeat_interleave, 
+                    kwargs={"repeats": length_multiplier, "dim": 1}
+                )
+                
+                if remainder > 0:
+                    # Then use circular padding for the remainder
+                    graph, adapted_node = add_specific_node(
+                        graph, 
+                        repeat_node, 
+                        nn.CircularPad1d((0, remainder))
+                    )
+                else:
+                    adapted_node = repeat_node
+            else:
+                # If we only need to wrap once, just use circular padding
+                graph, adapted_node = add_specific_node(
+                    graph, 
+                    flatten_node, 
+                    nn.CircularPad1d((0, target_total - current_total))
+                )
         else:
             # Need to decrease size - use adaptive pooling
-            graph, adapted_node = add_specific_node(graph, flatten_node, nn.AdaptiveAvgPool1d(target_total))
+            graph, adapted_node = add_specific_node(
+                graph, 
+                flatten_node, 
+                nn.AdaptiveAvgPool1d(target_total)
+            )
 
         # Add unflatten node
-        graph, unflatten_node = add_specific_node(graph, adapted_node, nn.Unflatten(dim=1, sizes=target_size))
+        graph, unflatten_node = add_specific_node(
+            graph, 
+            adapted_node, 
+            nn.Unflatten(dim=1, sizes=target_size)
+        )
 
         return graph, unflatten_node
 

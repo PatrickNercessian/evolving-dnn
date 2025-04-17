@@ -77,7 +77,9 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
     # Add a linear layer to the graph
     if operation == 'linear':
         # Use only the last feature dimension for input size
-        input_size = ref_feature_shape[-1]
+        # input_size = ref_feature_shape[-1]
+        input_size = random.randint(1, 1000)
+        
         output_size = random.randint(1, 1000)
         
         # Create separate input and output feature shapes
