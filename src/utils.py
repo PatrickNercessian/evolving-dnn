@@ -146,23 +146,48 @@ def adapt_node_shape(graph, node, current_size, target_size):
     Args:
         graph: The FX graph
         node: The node whose shape needs to be adapted
-        current_size: Current size of the node's output
-        target_size: Desired size of the node's output
+        current_size: Current size of the node's output, no batch dimension
+        target_size: Desired size of the node's output, no batch dimension
     Returns:
         graph: The modified graph
         adapted_node: The node after shape adaptation
     """
+    # Convert current_size and target_size to tuples if they are not already
+    current_size = tuple(current_size)
+    target_size = tuple(target_size)
+    
     if current_size == target_size:
         return graph, node
-        
-    if current_size < target_size:
-        # Need to increase size - use circular padding
-        graph, adapted_node = add_specific_node(graph, node, nn.CircularPad1d((0, target_size - current_size)))
-    else:
-        # Need to decrease size - use adaptive pooling
-        graph, adapted_node = add_specific_node(graph, node, nn.AdaptiveAvgPool1d(target_size))
-        
-    return graph, adapted_node
+    
+    if len(current_size) == 1:
+        if current_size < target_size:
+            # Need to increase size - use circular padding
+            graph, adapted_node = add_specific_node(graph, node, nn.CircularPad1d((0, target_size[0] - current_size[0])))
+        else:
+            # Need to decrease size - use adaptive pooling
+            graph, adapted_node = add_specific_node(graph, node, nn.AdaptiveAvgPool1d(target_size[0]))
+
+        return graph, adapted_node
+    
+    elif len(current_size) > 1:
+        # calculate total size of target shape by multiplying all dimensions except the first
+        target_total = math.prod(target_size)
+        current_total = math.prod(current_size)
+
+        # Add flatten node
+        graph, flatten_node = add_specific_node(graph, node, nn.Flatten(start_dim=1, end_dim=-1))
+
+        if current_total < target_total:
+            # Need to increase size - use circular padding
+            graph, adapted_node = add_specific_node(graph, flatten_node, nn.CircularPad1d((0, target_total - current_total)))
+        else:
+            # Need to decrease size - use adaptive pooling
+            graph, adapted_node = add_specific_node(graph, flatten_node, nn.AdaptiveAvgPool1d(target_total))
+
+        # Add unflatten node
+        graph, unflatten_node = add_specific_node(graph, adapted_node, nn.Unflatten(dim=1, sizes=target_size))
+
+        return graph, unflatten_node
 
 def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
     """

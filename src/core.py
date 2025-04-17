@@ -16,7 +16,7 @@ def get_graph(model: nn.Module, input_shape: tuple):
     
     Args:
         model: A PyTorch model (nn.Module)
-        input_shape: tuple specifying input tensor shape (batch, seq_len, dim)
+        input_shape: tuple specifying input tensor shape (batch, seq_len, dim)  # SHAPE NOTE: input_shape includes batch dimension
     Returns:
         graph: The computation graph object from torch.fx.symbolic_trace with shape information
     """
@@ -27,18 +27,18 @@ def get_graph(model: nn.Module, input_shape: tuple):
     # Perform shape propagation if input_shape is provided
     if input_shape is not None:
         # Create example input
-        example_input = torch.randn(input_shape)
+        example_input = torch.randn(input_shape)  # SHAPE NOTE: Using full shape including batch dimension
         
         # Get the first node (should be placeholder/input)
         placeholder = next(iter(graph.graph.nodes))
         placeholder.meta['tensor_meta'] = {
             'dtype': example_input.dtype,
-            'shape': input_shape,
+            'shape': input_shape,  # SHAPE NOTE: Storing full shape including batch dimension
             'requires_grad': example_input.requires_grad
         }
         
         # Run shape propagation
-        ShapeProp(graph).propagate(example_input)
+        ShapeProp(graph).propagate(example_input)  # SHAPE NOTE: Shape propagation uses full shape including batch dimension
     
     return graph
 
@@ -49,36 +49,66 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
     Args:
         graph: The FX graph
         reference_node: The node after which the new node will be inserted
-        operation: The operation to be performed by the new node ('linear', 'pool', or 'repeat')
+        operation: The operation to be performed by the new node ('linear', 'pool', 'repeat', etc.)
         **kwargs: Additional arguments for specific operations
             - For 'pool': target_size
             - For 'repeat': target_size
+            - For 'skip': first_node
     Returns:
         graph: The modified graph
     """
     
     # Get required shapes before making any modifications
-    input_shape, output_shape = find_required_shapes(reference_node)
+    input_shape, output_shape = find_required_shapes(reference_node)  # SHAPE NOTE: Returns shapes with batch dimension included
 
+    # Helper function to get feature dimensions (excluding batch dimension)
+    def get_feature_dims(shape):
+        if shape is None:
+            return None
+        # Skip the batch dimension (first dimension)
+        if len(shape) > 1:
+            return tuple(shape[1:])
+        else:
+            return tuple(shape)
+
+    # Get feature dimensions from reference node (excluding batch)
+    ref_feature_shape = get_feature_dims(reference_node.meta['tensor_meta'].shape)
+    
     # Add a linear layer to the graph
     if operation == 'linear':
-        # get the shape of the reference node from metadata
-        reference_node_shape = reference_node.meta['tensor_meta'].shape
-
-        new_node_shape = (reference_node_shape[-1], random.randint(1, 1000))  # Assign random shape to the new linear layer
-        print(f"New node shape: {new_node_shape}")
-        graph, new_node = add_specific_node(graph, reference_node, nn.Linear(new_node_shape[0], new_node_shape[1]))
+        # Use only the last feature dimension for input size
+        input_size = ref_feature_shape[-1]
+        output_size = random.randint(1, 1000)
+        
+        # Create separate input and output feature shapes
+        # Make sure to create new tuples as tuples are immutable
+        if len(ref_feature_shape) == 1:
+            new_node_input_shape = (input_size,)
+            new_node_output_shape = (output_size,)
+        else:
+            # Create a new tuple with the last dimension changed
+            new_node_input_shape = tuple(list(ref_feature_shape[:-1]) + [input_size])
+            new_node_output_shape = tuple(list(ref_feature_shape[:-1]) + [output_size])
+        
+        print(f"New linear layer: input={input_size}, output={output_size}")
+        
+        graph, new_node = add_specific_node(graph, reference_node, nn.Linear(input_size, output_size))
 
     # Add an adaptive pooling layer
     elif operation == 'pool':
         target_size = kwargs.get('target_size')
         if target_size is None:
             raise ValueError("target_size must be provided for pool operation")
-            
+
         graph, new_node = add_specific_node(graph, reference_node, nn.AdaptiveAvgPool1d(target_size))
         
-        # Get shape of the new node
-        new_node_shape = (target_size, target_size)  # For 1D pooling, in/out are same
+        # Input and output shapes for pooling
+        new_node_input_shape = ref_feature_shape
+        # Create a new tuple with the last dimension changed
+        if len(ref_feature_shape) == 1:
+            new_node_output_shape = (target_size,)
+        else:
+            new_node_output_shape = tuple(list(ref_feature_shape[:-1]) + [target_size])
         
     # Add a repeat/broadcast layer
     elif operation == 'repeat':
@@ -86,17 +116,31 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         if target_size is None:
             raise ValueError("target_size must be provided for repeat operation")
             
-        # Get input size from reference node
-        input_size = reference_node.meta['tensor_meta'].shape[-1]
+        # Get input size from reference node (last feature dimension)
+        input_size = ref_feature_shape[-1]
         graph, new_node = add_specific_node(graph, reference_node, nn.CircularPad1d((0, target_size - input_size)))
         
-        # Get shape of the new node
-        new_node_shape = (target_size, target_size)  # For repeat, in/out are same
+        # Input and output shapes for repeat
+        new_node_input_shape = ref_feature_shape
+        # Create a new tuple with the last dimension changed
+        if len(ref_feature_shape) == 1:
+            new_node_output_shape = (target_size,)
+        else:
+            new_node_output_shape = tuple(list(ref_feature_shape[:-1]) + [target_size])
 
     # Add a flatten layer, that flattens every dimension except the batch dimension 
     elif operation == 'flatten':
         graph, new_node = add_specific_node(graph, reference_node, nn.Flatten(start_dim=1, end_dim=-1))
-        new_node_shape = (reference_node.meta['tensor_meta'].shape[0], -1)
+        
+        # Calculate flattened feature size (product of all feature dimensions)
+        flattened_size = 1
+        for dim in ref_feature_shape:
+            if isinstance(dim, int) and dim > 0:
+                flattened_size *= dim
+                
+        # Input and output shapes for flatten
+        new_node_input_shape = ref_feature_shape
+        new_node_output_shape = (flattened_size,)
 
     # Add a skip connection
     elif operation == 'skip':
@@ -105,43 +149,52 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
             raise ValueError("first_node must be provided for skip operation")
         second_node = reference_node
         graph, new_node = add_skip_connection(graph, second_node, first_node)
-        new_node_shape = reference_node.meta['tensor_meta'].shape
+        
+        # Get the feature shapes of both nodes
+        first_features = get_feature_dims(first_node.meta['tensor_meta'].shape)
+        second_features = get_feature_dims(second_node.meta['tensor_meta'].shape)
+        
+        # For a skip connection, we'll use the second node's features for input and output
+        new_node_input_shape = second_features
+        new_node_output_shape = second_features
 
     # Add branch node, that branches the input into two paths
     elif operation == 'branch':
-        # Special case where we add two new nodes to the graph after the reference node BUT DO NOT CONNECT THEM TO USERS YET
-        # We then add a skip connection between the two new nodes
-        # Then we connect the skip connection to the users of the reference node
-        # y = f(x) -> y = h(g(x), k(x))
+        # Get the feature shape of the reference node, linear only for now
+        input_size = ref_feature_shape[-1]
         
-        # Get the shape of the reference node from metadata
-        reference_node_shape = reference_node.meta['tensor_meta'].shape
-        
-        # Create two new nodes with random shapes
-        branch1_shape = (reference_node_shape[-1], random.randint(1, 1000))
-        branch2_shape = (reference_node_shape[-1], random.randint(1, 1000))
+        # Create two new nodes with random output shapes
+        branch1_out_size = random.randint(1, 1000)
+        branch2_out_size = random.randint(1, 1000)
         
         # Create the branch modules
-        branch1_module = nn.Linear(branch1_shape[0], branch1_shape[1])
-        branch2_module = nn.Linear(branch2_shape[0], branch2_shape[1])
+        branch1_module = nn.Linear(input_size, branch1_out_size)
+        branch2_module = nn.Linear(input_size, branch2_out_size)
         
         # Use the utility function to add branch nodes
-        graph, new_node, skip_connection_output_shape = add_branch_nodes(graph, reference_node, branch1_module, branch2_module)
+        graph, new_node, skip_output_shape = add_branch_nodes(graph, reference_node, branch1_module, branch2_module)
         
-        # Determine the shape of the new node
-        new_node_shape = skip_connection_output_shape
+        # Get feature dimensions from skip connection output shape
+        new_node_output_shape = get_feature_dims(skip_output_shape)
+        
+        # For branches, input shape is reference node features, output is from skip connection
+        new_node_input_shape = ref_feature_shape
 
     graph.graph.lint()
     graph.recompile()
         
-    # Fix the connections using pre-computed shapes
-    adapt_connections(graph, new_node, new_node_shape, input_shape, output_shape)
+    # Fix the connections with clear input/output shape distinction
+    adapt_connections(graph, new_node, 
+                     parent_output_shape=input_shape,
+                     new_node_input_features=new_node_input_shape,
+                     new_node_output_features=new_node_output_shape,
+                     child_input_shape=output_shape)
 
     graph.graph.lint()
     graph.recompile()
 
     # Run shape propagation again to update all shape metadata
-    example_input = torch.randn(next(iter(graph.graph.nodes)).meta['tensor_meta'].shape)
+    example_input = torch.randn(next(iter(graph.graph.nodes)).meta['tensor_meta'].shape)  # SHAPE NOTE: Using full shape including batch dimension
     try:
         ShapeProp(graph).propagate(example_input)
     except Exception as e:
@@ -163,8 +216,21 @@ def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
     input_node = reference_node.args[0]
     
     # Get shapes before removing node
-    output_left_shape = list(input_node.meta['tensor_meta'].shape)
-    input_right_shape = reference_node.meta['tensor_meta'].shape
+    output_left_shape = list(input_node.meta['tensor_meta'].shape)  # SHAPE NOTE: Full shape with batch dimension
+    input_right_shape = reference_node.meta['tensor_meta'].shape  # SHAPE NOTE: Full shape with batch dimension
+    
+    # Helper function to get feature dimensions (excluding batch dimension)
+    def get_feature_dims(shape):
+        if shape is None:
+            return None
+        # Skip the batch dimension (first dimension)
+        if len(shape) > 1:
+            return tuple(shape[1:])
+        else:
+            return tuple(shape)
+    
+    # Extract feature dimensions
+    output_left_features = get_feature_dims(output_left_shape)
     
     # Remove the node from the graph
     reference_node.replace_all_uses_with(input_node)
@@ -173,18 +239,19 @@ def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
     
     graph.delete_all_unused_submodules()
 
-    # Adapt connections between input node and its new users
-    # In this case, the new node is the input node, so new_node input is always correct already
+    # Adapt connections between input node and its new users with clear shape distinction
     graph = adapt_connections(graph, new_node=input_node, 
-                              new_node_shape=(output_left_shape[-1], output_left_shape[-1]), 
-                              input_shape=output_left_shape, output_shape=input_right_shape)
+                             parent_output_shape=output_left_shape,
+                             new_node_input_features=output_left_features,
+                             new_node_output_features=output_left_features,
+                             child_input_shape=input_right_shape)
 
     # Lint and recompile the graph
     graph.graph.lint()
     graph.recompile()
 
     # Run shape propagation again to update all shape metadata
-    example_input = torch.randn(next(iter(graph.graph.nodes)).meta['tensor_meta'].shape)
+    example_input = torch.randn(next(iter(graph.graph.nodes)).meta['tensor_meta'].shape)  # SHAPE NOTE: Using full shape including batch dimension
     ShapeProp(graph).propagate(example_input)
 
     return graph, input_node
@@ -192,9 +259,10 @@ def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
 def adapt_connections(
     graph: torch.fx.GraphModule,
     new_node: torch.fx.Node,
-    new_node_shape: tuple | None,
-    input_shape: tuple,
-    output_shape: tuple
+    parent_output_shape: tuple,  # Full shape with batch dimension from parent node output
+    new_node_input_features: tuple,  # Feature dimensions only (no batch) for new node input
+    new_node_output_features: tuple,  # Feature dimensions only (no batch) for new node output
+    child_input_shape: tuple  # Full shape with batch dimension required by child node
 ):
     """
     Adapts the connections to/from a node to ensure all connected nodes have compatible shapes.
@@ -202,12 +270,27 @@ def adapt_connections(
     Args:
         graph: The FX graph
         new_node: The node whose connections need adaptation
-        new_node_shape: The shape of the new node, can be None if the new node is a skip connection
-        input_shape: The shape of the input node (pre-computed)
-        output_shape: The shape of the output node (pre-computed)
+        parent_output_shape: The shape output by the parent node (full shape with batch dimension)
+        new_node_input_features: The input shape expected by new node (feature dimensions only, no batch)
+        new_node_output_features: The output shape produced by new node (feature dimensions only, no batch)
+        child_input_shape: The input shape expected by the child node (full shape with batch dimension)
     Returns:
         graph: The modified graph
     """
+    
+    # Helper function to extract feature dimensions (excluding batch dimension)
+    def get_feature_dims(shape):
+        if shape is None:
+            return None
+        # Skip the batch dimension (first dimension)
+        if len(shape) > 1:
+            return tuple(shape[1:])
+        else:
+            return tuple(shape)
+    
+    # Extract feature dimensions from parent and child shapes
+    parent_features = get_feature_dims(parent_output_shape)
+    child_features = get_feature_dims(child_input_shape)
     
     # Special handling for skip connections (torch.add operations)
     if new_node.target == torch.add:
@@ -217,34 +300,30 @@ def adapt_connections(
         first_shape = first_node.meta['tensor_meta'].shape
         second_shape = second_node.meta['tensor_meta'].shape
         
-        # If shapes don't match, adapt both inputs to the larger shape
-        if first_shape[-1] != second_shape[-1]:
-            target_size = max(first_shape[-1], second_shape[-1])
+        # Extract feature dimensions
+        first_features = get_feature_dims(first_shape)
+        second_features = get_feature_dims(second_shape)
+        
+        # Check if feature dimensions are compatible
+        if first_features != second_features:
+            # For skip connections, adapt output of first node to be compatible
+            print(f"Skip connection shapes don't match: {first_features} vs {second_features}")
             
-            # Adapt first node if needed
-            if first_shape[-1] != target_size:
-                graph, first_node = adapt_node_shape(graph, first_node, first_shape[-1], target_size)
-            
-            # Adapt second node if needed
-            if second_shape[-1] != target_size:
-                graph, second_node = adapt_node_shape(graph, second_node, second_shape[-1], target_size)
+            graph, first_node = adapt_node_shape(graph, first_node, first_features, second_features)
             
             # Update the skip connection node's args
             new_node.args = (first_node, second_node)
-            
-            # Update new_node_shape to reflect the adapted size
-            new_node_shape = (target_size, target_size)
     
-    # For non-skip connections, handle input shape compatibility
-    elif input_shape is not None:
-        if input_shape[-1] != new_node_shape[0]: # last dimension of input node output shape
-            print(f"Input node output shape {input_shape[-1]} is not compatible with the node to adapt from {new_node_shape[0]}")
-            graph, new_node = adapt_node_shape(graph, new_node.args[0], input_shape[-1], new_node_shape[0])
+    # For regular nodes, adapt parent-to-new-node connection
+    else:
+        # Always adapt all dimensions for full compatibility
+        if parent_features != new_node_input_features:
+            print(f"Parent output features {parent_features} don't match node input features {new_node_input_features}")
+            graph, parent_node = adapt_node_shape(graph, new_node.args[0], parent_features, new_node_input_features)
 
-    # Handle output shape compatibility for all nodes
-    if output_shape is not None:
-        if output_shape[-1] != new_node_shape[1]:
-            print(f"Output node input shape {output_shape[-1]} is not compatible with the node to adapt from {new_node_shape[1]}")
-            graph, new_node = adapt_node_shape(graph, new_node, new_node_shape[1], output_shape[-1])
+    # Handle new-node-to-child connection
+    if new_node_output_features != child_features:
+        print(f"Node output features {new_node_output_features} don't match child input features {child_features}")
+        graph, child_node = adapt_node_shape(graph, new_node, new_node_output_features, child_features)
     
     return graph
