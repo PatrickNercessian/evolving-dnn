@@ -1,6 +1,6 @@
+import copy
 import random
 from typing import Callable
-import torch
 
 from .individual import Individual
 
@@ -9,27 +9,38 @@ class Evolution:
         self,
         population: list[Individual],
         fitness_fn: Callable[[Individual], float],
-        mutation_rate: float = 0.1,
-        selection_pressure: float = 0.5,
+        crossover_instead_of_mutation_rate: float = 0.5,
+        mutation_fns_and_probabilities: list[tuple[Callable[[Individual], Individual], float]] = [],
+        crossover_fns_and_probabilities: list[tuple[Callable[[Individual, Individual], Individual], float]] = [],
+        target_population_size: bool = 100,
+        num_children_per_generation: int = 100,
         block_size: int = 128,
     ):
         """
         Initialize the evolution process
         
         Args:
-            population: Initial population of GPT models
-            fitness_fn: Function that takes a GPT model and returns its fitness score
-            mutation_rate: Probability of mutation for each parameter
-            selection_pressure: Fraction of population to select as parents
+            population: Initial population of individuals
+            fitness_fn: Function that takes an individual and returns its fitness score
+            crossover_instead_of_mutation_rate: Probability of crossover occurring instead of mutation
+            mutation_fns_and_probabilities: List of mutation functions and their respective probabilities if mutation occurs
+            crossover_fns_and_probabilities: List of crossover functions and their respective probabilities if crossover occurs
+            target_population_size: Population size to maintain after selection
+            num_children_per_generation: Number of children to generate per generation
+            block_size: Block size for the model
         """
         self.population = population
         self.fitness_fn = fitness_fn
-        self.mutation_rate = mutation_rate
-        self.selection_pressure = selection_pressure
+        self.crossover_instead_of_mutation_rate = crossover_instead_of_mutation_rate
+        self.mutation_fns_and_probabilities = mutation_fns_and_probabilities
+        self.crossover_fns_and_probabilities = crossover_fns_and_probabilities
+        self.target_population_size = target_population_size
+        self.num_children_per_generation = num_children_per_generation
         self.block_size = block_size
         self.generation = 0
         self.best_fitness = float('-inf')
-        self.best_model = None
+        self.best_individual = None
+        self.id_counter = len(self.population)
 
     def run_evolution(self, num_generations: int):
         """
@@ -38,144 +49,97 @@ class Evolution:
         Args:
             num_generations: Number of generations to evolve
         """
+        for individual in self.population:  # evaluate fitness for initial population
+            individual.fitness = self.fitness_fn(individual)
+        
         for gen in range(num_generations):
             self.generation = gen
+            self._log_generation()
+            self._selection()
             
-            # Calculate fitness for all models
-            fitness_scores = self._evaluate_population()
-            
-            # Select parents for next generation
-            parents = self._selection(fitness_scores)
-            
+            for parent in self.population:  # TODO remove this
+                print(f"Parent {parent.id} has train config {parent.train_config}")
+
             # Create new population through crossover and mutation
-            new_population = []
-            while len(new_population) < len(self.population):
-                parent1, parent2 = random.sample(parents, 2)
-                child = self._crossover(parent1, parent2)
-                child = self._mutate(child)
-                new_population.append(child)
+            new_children = []
+            while len(new_children) < self.num_children_per_generation:
+                parent1, parent2 = random.sample(self.population, 2)  # TODO should this sample with or without replacement?
+                if random.random() < self.crossover_instead_of_mutation_rate:
+                    child = self._crossover(parent1, parent2)
+                else:
+                    child = self._mutate(copy.deepcopy(parent1))
+                child.id = self.id_counter
+                child.fitness = self.fitness_fn(child)
+                self.id_counter += 1
+                new_children.append(child)
             
-            self.population = new_population
-            
-            # Log progress
-            self._log_generation(fitness_scores)
+            self.population.extend(new_children)
 
-    def _evaluate_population(self) -> list[float]:
-        """
-        Calculate fitness scores for entire population
-        
-        Returns:
-            List of fitness scores corresponding to each model
-        """
-
-        train_dataset = TextDataset(data, self.block_size)
-        # TODO: add validation dataset
-        return [self.fitness_fn(individual, train_dataset, train_dataset) for individual in self.population]
-
-    def _selection(self, fitness_scores: list[float]) -> list[Individual]:
-        """
-        Select models for breeding based on fitness scores
-        
-        Args:
-            fitness_scores: List of fitness scores for current population
-            
-        Returns:
-            List of selected parent models
-        """
+    def _selection(self) -> list[Individual]:
+        """Select individuals for breeding based on fitness scores"""
         # Sort population by fitness
-        sorted_population = [x for _, x in sorted(
-            zip(fitness_scores, self.population),
-            key=lambda pair: pair[0],
+        sorted_population = sorted(
+            self.population,
+            key=lambda individual: individual.fitness,
             reverse=True
-        )]
+        )
         
-        # Select top performers as parents
-        num_parents = int(len(self.population) * self.selection_pressure)
-        return sorted_population[:num_parents]
+        self.population = sorted_population[:self.target_population_size]  # Select top performers as parents
 
     def _crossover(self, parent1: Individual, parent2: Individual) -> Individual:
         """
-        Perform crossover between two parent models
+        Perform crossover between two parents
         
         Args:
-            parent1: First parent model
-            parent2: Second parent model
+            parent1: First parent
+            parent2: Second parent
             
         Returns:
-            Child model
+            Child
         """
-        # TODO: implement crossover with a deep copy of the individual
-        raise NotImplementedError("Crossover method not implemented")
+        print(f"Crossover between {parent1.id} and {parent2.id}")
+        child = copy.deepcopy(parent1)
+        for crossover_fn, probability in self.crossover_fns_and_probabilities:
+            if random.random() < probability:
+                crossover_fn(child, parent2)
+        return child
 
-    def _mutate(self, model: Individual) -> Individual:
+    def _mutate(self, individual: Individual) -> Individual:
         """
-        Mutate a single model
+        Mutate a single individual
         
         Args:
-            model: Model to mutate
+            individual: Individual to mutate
             
         Returns:
-            Mutated model
+            Mutated individual
         """
-        # TODO: implement mutation with a deep copy of the individual
-        raise NotImplementedError("Mutation method not implemented")
+        print(f"Mutating {individual.id}")
+        for mutation_fn, probability in self.mutation_fns_and_probabilities:
+            if random.random() < probability:
+                mutation_fn(individual)
+        return individual
 
-    def _log_generation(self, fitness_scores: list[float]):
-        """
-        Log the progress of evolution
+    def _log_generation(self):
+        """Log the progress of evolution"""
+        current_best_fitness_in_gen = float('-inf')
+        current_best_individual_in_gen = None
+        fitness_sum = 0
         
-        Args:
-            fitness_scores: List of fitness scores for current generation
-        """
-        max_fitness = max(fitness_scores)
-        avg_fitness = sum(fitness_scores) / len(fitness_scores)
+        for individual in self.population:
+            fitness_sum += individual.fitness
+            if individual.fitness > current_best_fitness_in_gen:
+                current_best_fitness_in_gen = individual.fitness
+                current_best_individual_in_gen = individual
         
-        if max_fitness > self.best_fitness:
-            self.best_fitness = max_fitness
-            self.best_model = self.population[fitness_scores.index(max_fitness)]
+        avg_fitness = fitness_sum / len(self.population)
+        
+        if current_best_fitness_in_gen > self.best_fitness:
+            self.best_fitness = current_best_fitness_in_gen
+            self.best_individual = current_best_individual_in_gen
         
         print(f"Generation {self.generation}:")
-        print(f"  Max Fitness: {max_fitness:.4f}")
-        print(f"  Avg Fitness: {avg_fitness:.4f}")
-        print(f"  Best Fitness Overall: {self.best_fitness:.4f}")
-
-class TextDataset(torch.utils.data.Dataset):
-    def __init__(self, data, block_size):
-        self.data = data
-        self.block_size = block_size
-
-    def __len__(self):
-        return len(self.data) - self.block_size
-
-    def __getitem__(self, idx):
-        # return a chunk of data and the next token as target
-        x = self.data[idx:idx + self.block_size]
-        y = self.data[idx + 1:idx + self.block_size + 1]
-        return x, y
-
-if __name__ == "__main__":
-    from src.bpe import tokenize_string, VOCAB_SIZE
-    from src.initial_population import generate_initial_population
-    from src.evaluate import calculate_fitness
-
-    import os
-
-    if os.path.exists('tokenized_data.pt'):
-        data = torch.load('tokenized_data.pt')  # Save the tokenized data tensor to a file
-    else:
-        # Load, tokenize and save the input text
-        with open('mingpt/input.txt', 'r', encoding='utf-8') as f:
-            text = f.read()
-        data = tokenize_string(text)
-        torch.save(data, 'tokenized_data.pt')
-
-    BLOCK_SIZE = 128
-
-    evolution = Evolution(
-        population=generate_initial_population(2, VOCAB_SIZE, BLOCK_SIZE),
-        fitness_fn=calculate_fitness,
-        mutation_rate=0.1,
-        selection_pressure=0.5,
-        block_size=BLOCK_SIZE
-    )
-    evolution.run_evolution(10)
+        print(f"  Max Fitness in Gen: {current_best_fitness_in_gen:.4f}")
+        print(f"  Avg Fitness in Gen: {avg_fitness:.4f}")
+        if self.best_individual:
+            print(f"  Best Individual Overall (fitness: {self.best_individual.fitness}, id: {self.best_individual.id}): {self.best_individual.train_config}")
