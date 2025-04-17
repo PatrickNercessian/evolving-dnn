@@ -1,5 +1,5 @@
 import random
-
+import math
 import torch
 import torch.nn as nn
 import torch.fx
@@ -135,10 +135,7 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         graph, new_node = add_specific_node(graph, reference_node, nn.Flatten(start_dim=1, end_dim=-1))
         
         # Calculate flattened feature size (product of all feature dimensions)
-        flattened_size = 1
-        for dim in ref_feature_shape:
-            if isinstance(dim, int) and dim > 0:
-                flattened_size *= dim
+        flattened_size = math.prod(ref_feature_shape)
                 
         # Input and output shapes for flatten
         new_node_input_shape = ref_feature_shape
@@ -181,6 +178,20 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         
         # For branches, input shape is reference node features, output is from skip connection
         new_node_input_shape = ref_feature_shape
+
+    # Add a dropout layer
+    elif operation == 'dropout':
+        graph, new_node = add_specific_node(graph, reference_node, nn.Dropout(p=0.5))
+
+        new_node_input_shape = ref_feature_shape
+        new_node_output_shape = ref_feature_shape
+
+    # Add an activation function
+    elif operation == 'relu':
+        graph, new_node = add_specific_node(graph, reference_node, nn.ReLU())
+
+        new_node_input_shape = ref_feature_shape
+        new_node_output_shape = ref_feature_shape
 
     graph.graph.lint()
     graph.recompile()
