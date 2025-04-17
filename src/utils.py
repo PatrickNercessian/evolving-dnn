@@ -231,24 +231,17 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
     ShapeProp(graph).propagate(example_input)
     
     # Infer the shapes of the branch nodes from the metadata
-    branch1_shape = branch1_node.meta['tensor_meta'].shape
-    branch2_shape = branch2_node.meta['tensor_meta'].shape
+    branch1_shape = tuple(branch1_node.meta['tensor_meta'].shape[1:])
+    branch2_shape = tuple(branch2_node.meta['tensor_meta'].shape[1:])
     
     # Initialize variables to track the final nodes to use in skip connection
     final_branch1_node = branch1_node
     final_branch2_node = branch2_node
     
     # Adapt branch nodes if needed to ensure they have compatible shapes
-    if branch1_shape[-1] != branch2_shape[-1]:
-        target_size = max(branch1_shape[-1], branch2_shape[-1])
-        
-        # Adapt first branch if needed
-        if branch1_shape[-1] != target_size:
-            graph, final_branch1_node = adapt_node_shape(graph, branch1_node, branch1_shape[-1], target_size)
-        
-        # Adapt second branch if needed
-        if branch2_shape[-1] != target_size:
-            graph, final_branch2_node = adapt_node_shape(graph, branch2_node, branch2_shape[-1], target_size)
+    if branch1_shape != branch2_shape:    
+        # Adapt first branch
+        graph, final_branch1_node = adapt_node_shape(graph, branch1_node, branch1_shape, branch2_shape)
 
     # Run shape propagation to update metadata for the branch nodes
     example_input = torch.randn(reference_node_shape)
