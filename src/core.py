@@ -5,8 +5,8 @@ import torch.nn as nn
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
-from individual_graph_module import IndividualGraphModule
-from utils import find_required_shapes, add_specific_node, add_skip_connection, adapt_node_shape, add_branch_nodes
+from src.individual_graph_module import IndividualGraphModule
+from src.utils import find_required_shapes, add_specific_node, add_skip_connection, adapt_node_shape, add_branch_nodes
 
 
 def get_graph(model: nn.Module, input_shape: tuple):
@@ -59,7 +59,7 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
     """
     
     # Get required shapes before making any modifications
-    input_shape, output_shape = find_required_shapes(reference_node)  # SHAPE NOTE: Returns shapes with batch dimension included
+    ref_input_shape, ref_output_shape = find_required_shapes(reference_node)  # SHAPE NOTE: Returns shapes with batch dimension included
 
     # Helper function to get feature dimensions (excluding batch dimension)
     def get_feature_dims(shape):
@@ -76,11 +76,21 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
     
     # Add a linear layer to the graph
     if operation == 'linear':
-        # Use only the last feature dimension for input size
-        # input_size = ref_feature_shape[-1]
-        input_size = random.randint(1, 1000)
+        # Get input_size and output_size from kwargs if provided, otherwise use random values
+        input_size = kwargs.get('input_size')
+        output_size = kwargs.get('output_size')
         
-        output_size = random.randint(1, 1000)
+        # If not provided in kwargs, try to use the ref_feature_shape or default to random
+        if input_size is None:
+            if len(ref_feature_shape) > 0:
+                input_size = ref_feature_shape[-1]
+            else:
+                input_size = random.randint(1, 1000)
+                print("Warning: Using random input_size for linear layer")
+                
+        if output_size is None:
+            output_size = random.randint(1, 1000)
+            print("Warning: Using random output_size for linear layer")
         
         # Create separate input and output feature shapes
         # Make sure to create new tuples as tuples are immutable
@@ -159,12 +169,20 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
 
     # Add branch node, that branches the input into two paths
     elif operation == 'branch':
-        # Get the feature shape of the reference node, linear only for now
+        # Get the feature shape of the reference node
         input_size = ref_feature_shape[-1]
         
-        # Create two new nodes with random output shapes
-        branch1_out_size = random.randint(1, 1000)
-        branch2_out_size = random.randint(1, 1000)
+        # Get branch output sizes from kwargs if provided, otherwise use random or default values
+        branch1_out_size = kwargs.get('branch1_out_size')
+        branch2_out_size = kwargs.get('branch2_out_size')
+        
+        if branch1_out_size is None:
+            branch1_out_size = max(1, input_size // 2)
+        
+        if branch2_out_size is None:
+            branch2_out_size = max(1, input_size // 2)
+        
+        print(f"Branch modules: input_size={input_size}, branch1_out={branch1_out_size}, branch2_out={branch2_out_size}")
         
         # Create the branch modules
         branch1_module = nn.Linear(input_size, branch1_out_size)
@@ -181,7 +199,11 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
 
     # Add a dropout layer
     elif operation == 'dropout':
-        graph, new_node = add_specific_node(graph, reference_node, nn.Dropout(p=0.5))
+        # Get dropout probability from kwargs if provided, otherwise use default
+        prob = kwargs.get('prob', 0.5)
+        print(f"Adding dropout layer with probability {prob}")
+        
+        graph, new_node = add_specific_node(graph, reference_node, nn.Dropout(p=prob))
 
         new_node_input_shape = ref_feature_shape
         new_node_output_shape = ref_feature_shape
@@ -198,10 +220,10 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         
     # Fix the connections with clear input/output shape distinction
     adapt_connections(graph, new_node, 
-                     parent_output_shape=input_shape,
+                     parent_output_shape=ref_output_shape,  # Use reference node's output shape as parent output
                      new_node_input_features=new_node_input_shape,
                      new_node_output_features=new_node_output_shape,
-                     child_input_shape=output_shape)
+                     child_input_shape=ref_output_shape)
 
     graph.graph.lint()
     graph.recompile()
@@ -308,8 +330,8 @@ def adapt_connections(
     # Special handling for skip connections (torch.add operations)
     if new_node.target == torch.add:
         # Get shapes of both input nodes
-        first_node = new_node.args[0]
-        second_node = new_node.args[1]
+        first_node = new_node.args[1]
+        second_node = new_node.args[0]
         first_shape = first_node.meta['tensor_meta'].shape
         second_shape = second_node.meta['tensor_meta'].shape
         
@@ -319,13 +341,14 @@ def adapt_connections(
         
         # Check if feature dimensions are compatible
         if first_features != second_features:
-            # For skip connections, adapt output of first node to be compatible
+            # For skip connections, adapt output of first node to be compatible with second node
             print(f"Skip connection shapes don't match: {first_features} vs {second_features}")
             
-            graph, first_node = adapt_node_shape(graph, first_node, first_features, second_features)
+            # Use target_user=new_node to only update the skip connection's use of first_node
+            graph, adapted_first_node = adapt_node_shape(graph, first_node, first_features, second_features, target_user=new_node)
             
             # Update the skip connection node's args
-            new_node.args = (first_node, second_node)
+            new_node.args = (second_node, adapted_first_node)
     
     # For regular nodes, adapt parent-to-new-node connection
     else:

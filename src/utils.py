@@ -74,7 +74,7 @@ def get_unique_name(graph, base_name: str) -> str:
     
     return name
 
-def add_specific_node(graph, reference_node, module_or_function, kwargs=None):
+def add_specific_node(graph, reference_node, module_or_function, kwargs=None, target_user=None):
     """
     Helper function to add a new node to the graph after the reference node.
     Supports both PyTorch modules and functions.
@@ -84,6 +84,7 @@ def add_specific_node(graph, reference_node, module_or_function, kwargs=None):
         reference_node: The node after which the new node will be inserted
         module_or_function: The PyTorch module or function to add
         kwargs: Optional keyword arguments for the function call (only used for functions)
+        target_user: Optional specific node that should use the new node. If None, all users will be updated.
     Returns:
         graph: The modified graph
         new_node: The newly added node
@@ -113,8 +114,19 @@ def add_specific_node(graph, reference_node, module_or_function, kwargs=None):
                 kwargs=kwargs,
             )
     
-    # Update connections
-    reference_node.replace_all_uses_with(new_node)
+    # Update connections based on target_user
+    if target_user is not None:
+        # Find the index of reference_node in target_user's args
+        for i, arg in enumerate(target_user.args):
+            if arg is reference_node:
+                # Update just this specific connection
+                target_user.args = tuple(new_node if x is reference_node else x for x in target_user.args)
+                break
+    else:
+        # Update all users of the reference node to use the new node
+        reference_node.replace_all_uses_with(new_node)
+    
+    # Set the input of the new node
     if isinstance(reference_node, tuple):
         new_node.args = reference_node
     else:
@@ -158,7 +170,7 @@ def add_skip_connection(graph, second_node, first_node, torch_function=torch.add
 
     return graph, new_node
 
-def adapt_node_shape(graph, node, current_size, target_size):
+def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     """
     Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
     
@@ -167,6 +179,7 @@ def adapt_node_shape(graph, node, current_size, target_size):
         node: The node whose shape needs to be adapted
         current_size: Current size of the node's output, no batch dimension
         target_size: Desired size of the node's output, no batch dimension
+        target_user: Optional specific node that should use the adapted output. If None, all users will be updated.
     Returns:
         graph: The modified graph
         adapted_node: The node after shape adaptation
@@ -189,7 +202,8 @@ def adapt_node_shape(graph, node, current_size, target_size):
                     graph, 
                     node, 
                     torch.repeat_interleave, 
-                    kwargs={"repeats": length_multiplier, "dim": 1}
+                    kwargs={"repeats": length_multiplier, "dim": 1},
+                    target_user=None  # Intermediate node, will be used by next adaptation
                 )
                 
                 if remainder > 0:
@@ -197,7 +211,8 @@ def adapt_node_shape(graph, node, current_size, target_size):
                     graph, adapted_node = add_specific_node(
                         graph, 
                         repeat_node, 
-                        nn.CircularPad1d((0, remainder))
+                        nn.CircularPad1d((0, remainder)),
+                        target_user=target_user
                     )
                 else:
                     adapted_node = repeat_node
@@ -206,14 +221,16 @@ def adapt_node_shape(graph, node, current_size, target_size):
                 graph, adapted_node = add_specific_node(
                     graph, 
                     node, 
-                    nn.CircularPad1d((0, target_size[0] - current_size[0]))
+                    nn.CircularPad1d((0, target_size[0] - current_size[0])),
+                    target_user=target_user
                 )
         else:
             # Need to decrease size - use adaptive pooling
             graph, adapted_node = add_specific_node(
                 graph, 
                 node, 
-                nn.AdaptiveAvgPool1d(target_size[0])
+                nn.AdaptiveAvgPool1d(target_size[0]),
+                target_user=target_user
             )
 
         return graph, adapted_node
@@ -227,7 +244,8 @@ def adapt_node_shape(graph, node, current_size, target_size):
         graph, flatten_node = add_specific_node(
             graph, 
             node, 
-            nn.Flatten(start_dim=1, end_dim=-1)
+            nn.Flatten(start_dim=1, end_dim=-1),
+            target_user=None  # Intermediate node, will be used by next adaptation
         )
 
         if current_total < target_total:
@@ -240,7 +258,8 @@ def adapt_node_shape(graph, node, current_size, target_size):
                     graph, 
                     flatten_node, 
                     torch.repeat_interleave, 
-                    kwargs={"repeats": length_multiplier, "dim": 1}
+                    kwargs={"repeats": length_multiplier, "dim": 1},
+                    target_user=None  # Intermediate node, will be used by next adaptation
                 )
                 
                 if remainder > 0:
@@ -248,7 +267,8 @@ def adapt_node_shape(graph, node, current_size, target_size):
                     graph, adapted_node = add_specific_node(
                         graph, 
                         repeat_node, 
-                        nn.CircularPad1d((0, remainder))
+                        nn.CircularPad1d((0, remainder)),
+                        target_user=None  # Intermediate node, will be used by unflatten
                     )
                 else:
                     adapted_node = repeat_node
@@ -257,21 +277,24 @@ def adapt_node_shape(graph, node, current_size, target_size):
                 graph, adapted_node = add_specific_node(
                     graph, 
                     flatten_node, 
-                    nn.CircularPad1d((0, target_total - current_total))
+                    nn.CircularPad1d((0, target_total - current_total)),
+                    target_user=None  # Intermediate node, will be used by unflatten
                 )
         else:
             # Need to decrease size - use adaptive pooling
             graph, adapted_node = add_specific_node(
                 graph, 
                 flatten_node, 
-                nn.AdaptiveAvgPool1d(target_total)
+                nn.AdaptiveAvgPool1d(target_total),
+                target_user=None  # Intermediate node, will be used by unflatten
             )
 
         # Add unflatten node
         graph, unflatten_node = add_specific_node(
             graph, 
             adapted_node, 
-            nn.Unflatten(dim=1, sizes=target_size)
+            nn.Unflatten(dim=1, sizes=target_size),
+            target_user=target_user  # Final node, use the target_user
         )
 
         return graph, unflatten_node

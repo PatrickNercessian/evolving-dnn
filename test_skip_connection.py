@@ -4,9 +4,9 @@ import math
 import torch.nn.functional as F
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
-from utils import find_required_shapes, add_skip_connection
-from modelbank import simple_linear
-from core import get_graph, add_node
+from src.utils import find_required_shapes, add_skip_connection
+from src.modelbank import simple_linear
+from src.core import get_graph, add_node
 import random
 
 # Create a simple model with multiple layers
