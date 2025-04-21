@@ -5,8 +5,8 @@ import torch.nn as nn
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
-from individual_graph_module import IndividualGraphModule
-from utils import find_required_shapes, add_specific_node, add_skip_connection, adapt_node_shape, add_branch_nodes
+from src.individual_graph_module import IndividualGraphModule
+from src.utils import find_required_shapes, add_specific_node, add_skip_connection, adapt_node_shape, add_branch_nodes
 
 
 def get_graph(model: nn.Module, input_shape: tuple):

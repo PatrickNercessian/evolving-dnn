@@ -7,8 +7,8 @@ import torch.nn as nn
 import math
 import torch.nn.functional as F
 
-from core import get_graph, add_node, remove_node, shape_prop
-from visualization import visualize_graph
+from src.core import get_graph, add_node, remove_node, shape_prop
+from src.visualization import visualize_graph
 
 from mingpt.model import GPT
 from mingpt.utils import CfgNode as CN
