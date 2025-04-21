@@ -337,8 +337,13 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
         )
     
     # Run shape propagation to update metadata for the new nodes
-    example_input = torch.randn(reference_node_shape)
-    ShapeProp(graph).propagate(example_input)
+    placeholder_shape = next(iter(graph.graph.nodes)).meta['tensor_meta'].shape
+    example_input = torch.randn(placeholder_shape)
+    try:
+        ShapeProp(graph).propagate(example_input)
+    except Exception as e:
+        print(f"Error during shape propagation: {e}")
+        print(f"Graph: {graph}")
     
     # Infer the shapes of the branch nodes from the metadata
     branch1_shape = tuple(branch1_node.meta['tensor_meta'].shape[1:])
@@ -354,7 +359,8 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
         graph, final_branch1_node = adapt_node_shape(graph, branch1_node, branch1_shape, branch2_shape)
 
     # Run shape propagation to update metadata for the branch nodes
-    example_input = torch.randn(reference_node_shape)
+    placeholder_shape = next(iter(graph.graph.nodes)).meta['tensor_meta'].shape
+    example_input = torch.randn(placeholder_shape)
     try:
         ShapeProp(graph).propagate(example_input)
     except Exception as e:

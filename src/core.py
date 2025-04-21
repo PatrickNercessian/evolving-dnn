@@ -177,10 +177,10 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         branch2_out_size = kwargs.get('branch2_out_size')
         
         if branch1_out_size is None:
-            branch1_out_size = max(1, input_size // 2)
+            branch1_out_size = input_size
         
         if branch2_out_size is None:
-            branch2_out_size = max(1, input_size // 2)
+            branch2_out_size = input_size
         
         print(f"Branch modules: input_size={input_size}, branch1_out={branch1_out_size}, branch2_out={branch2_out_size}")
         

@@ -4,6 +4,9 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import traceback
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 print("Imports completed")
 
@@ -45,6 +48,39 @@ def create_xor_dataset(num_samples=1000):
     return torch.tensor(X), torch.tensor(y)
 
 print("XOR dataset function defined")
+
+# Create a weather dataset
+def create_weather_dataset():
+    print("Loading weather data...")
+    # Read the CSV file
+    df = pd.read_csv('weatherHistory.csv')
+    
+    # Select features and target
+    # We'll predict temperature based on other features
+    features = ['Humidity', 'Wind Speed (km/h)', 'Wind Bearing (degrees)', 'Visibility (km)', 'Pressure (millibars)']
+    target = 'Temperature (C)'
+    
+    # Drop any rows with missing values
+    df = df.dropna(subset=features + [target])
+    
+    # Create feature matrix X and target vector y
+    X = df[features].values.astype(np.float32)
+    y = df[target].values.astype(np.float32).reshape(-1, 1)
+    
+    # Scale the features and target
+    scaler_X = StandardScaler()
+    scaler_y = StandardScaler()
+    
+    X = scaler_X.fit_transform(X)
+    y = scaler_y.fit_transform(y)
+    
+    # Convert to PyTorch tensors
+    X = torch.tensor(X)
+    y = torch.tensor(y)
+    
+    return X, y, scaler_y
+
+print("Weather dataset function defined")
 
 # Define mutation functions
 def mutation_add_linear(individual):
@@ -180,6 +216,10 @@ def mutation_add_branch(individual):
             branch1_out_size = 4
             branch2_out_size = 4
             
+        # Branch out sizes are random ints
+        branch1_out_size = random.randint(1, 500)
+        branch2_out_size = random.randint(1, 500)
+        
         # Add branch nodes
         try:
             individual.graph_module = add_node(individual.graph_module, reference_node, 'branch',
@@ -202,9 +242,9 @@ def fitness_function(individual):
     model = individual.graph_module
     
     try:
-        X, y = create_xor_dataset(1000)  # Fresh data for each evaluation
+        X, y, scaler_y = create_weather_dataset()  # Get weather data
         
-        criterion = nn.BCEWithLogitsLoss()
+        criterion = nn.MSELoss()  # Use MSE loss for regression
         optimizer = optim.Adam(model.parameters(), lr=individual.train_config.learning_rate)
         
         # Mini training loop
@@ -232,12 +272,11 @@ def fitness_function(individual):
         model.eval()
         with torch.no_grad():
             outputs = model(X)
-            predictions = (torch.sigmoid(outputs) > 0.5).float()
-            accuracy = (predictions == y).float().mean().item()
+            mse = criterion(outputs, y).item()
+            r2 = 1 - mse / torch.var(y).item()  # Calculate R² score
         
-        
-        print(f"Fitness for individual {individual.id}: {accuracy}")
-        return accuracy  # Return accuracy as fitness
+        print(f"Fitness (R² score) for individual {individual.id}: {r2}")
+        return r2  # Return R² score as fitness
         
     except Exception as e:
         print(f"\nError during fitness evaluation for individual {individual.id}:")
@@ -247,7 +286,7 @@ def fitness_function(individual):
         print(model.graph.print_tabular())
         print("\nFull stack trace:")
         traceback.print_exc()
-        raise  # Re-raise the exception to stop the entire process
+        raise
 
 print("Fitness function defined")
 
@@ -259,10 +298,10 @@ def create_initial_population(pop_size=5):
     for i in range(pop_size):
         try:
             print(f"Creating individual {i}")
-            # Create base model with random hyperparameters
-            input_size = 2
-            hidden_size = random.randint(4, 16)
-            output_size = 1
+            # Create base model with parameters for weather prediction
+            input_size = 5  # Number of weather features
+            hidden_size = random.randint(8, 32)
+            output_size = 1  # Temperature prediction
             
             model = SimpleModel(input_size, hidden_size, output_size)
             
@@ -273,8 +312,8 @@ def create_initial_population(pop_size=5):
             
             # Create training config
             train_config = CN()
-            train_config.learning_rate = random.uniform(0.001, 0.01)
-            train_config.batch_size = random.choice([8, 16, 32, 64])
+            train_config.learning_rate = random.uniform(0.0001, 0.001)  # Smaller learning rates for stability
+            train_config.batch_size = random.choice([32, 64, 128])  # Larger batches for stability
             train_config.num_epochs = 5  # Keep small for quick testing
             
             # Create individual
@@ -286,11 +325,11 @@ def create_initial_population(pop_size=5):
             traceback.print_exc()
             # Try again with a simpler model
             try:
-                model = SimpleModel(2, 8, 1)  # Use fixed size for stability
-                graph_module = get_graph(model, input_shape=(32, 2))
+                model = SimpleModel(5, 16, 1)  # Use fixed size for stability
+                graph_module = get_graph(model, input_shape=(32, 5))
                 train_config = CN()
-                train_config.learning_rate = 0.005
-                train_config.batch_size = 32
+                train_config.learning_rate = 0.0005
+                train_config.batch_size = 64
                 train_config.num_epochs = 5
                 individual = Individual(graph_module, train_config, i)
                 population.append(individual)
@@ -303,11 +342,32 @@ def create_initial_population(pop_size=5):
 
 print("Initial population function defined")
 
-# Main test function
+def print_population_graphs(population, generation=None):
+    """Print the graph structure of all individuals in the population, including tensor shapes"""
+    gen_str = f" in Generation {generation}" if generation is not None else ""
+    print(f"\n=== Printing graphs for all individuals{gen_str} ===")
+    for individual in population:
+        print(f"\nIndividual {individual.id} Graph Structure:")
+        print("----------------------------------------")
+        for node in individual.graph_module.graph.nodes:
+            shape_info = f" -> Shape: {node.meta['tensor_meta'].shape}" if 'meta' in node.__dict__ and 'tensor_meta' in node.meta else ""
+            if node.op == 'placeholder':
+                print(f"Input: {node.name}{shape_info}")
+            elif node.op == 'output':
+                print(f"Output: {node.name}{shape_info}")
+            elif node.op == 'call_module':
+                module = getattr(individual.graph_module, node.target)
+                print(f"Layer: {node.name} ({type(module).__name__}){shape_info}")
+            elif node.op == 'call_function':
+                print(f"Operation: {node.name} ({node.target.__name__}){shape_info}")
+            else:
+                print(f"Node: {node.name} ({node.op}){shape_info}")
+        print("----------------------------------------")
+
 def test_evolution():
     print("Starting test_evolution function")
     print("Creating initial population...")
-    population = create_initial_population(pop_size=5)
+    population = create_initial_population(pop_size=2)
     
     if not population:
         print("Failed to create initial population. Exiting test.")
@@ -320,10 +380,10 @@ def test_evolution():
         fitness_fn=fitness_function,
         crossover_instead_of_mutation_rate=0.0,  # Disable crossover
         mutation_fns_and_probabilities=[
-            # (mutation_add_linear, 0.4),
-            # (mutation_add_relu, 0.2),
-            # (mutation_add_skip_connection, 1),
-            (mutation_add_branch, 1),
+            (mutation_add_linear, 0.4),
+            (mutation_add_relu, 0.2),
+            (mutation_add_skip_connection, 0.2),
+            (mutation_add_branch, 0.2),
         ],
         crossover_fns_and_probabilities=[],  # Empty crossover functions
         target_population_size=3,
@@ -338,6 +398,10 @@ def test_evolution():
         
         print("\nEvolution completed!")
         print(f"Best fitness: {evolution.best_fitness}")
+        
+        print("\n=== Final Population Graphs ===")
+        print_population_graphs(evolution.population)
+        
         if evolution.best_individual:
             print(f"Best individual ID: {evolution.best_individual.id}")
             print(f"Best config: {evolution.best_individual.train_config}")
@@ -364,23 +428,23 @@ def test_evolution():
     print("Test evolution function complete")
 
 def test_base_model():
-    """Test that the base model can learn the XOR problem without evolution"""
+    """Test that the base model can learn weather prediction without evolution"""
     print("\n=== Testing Base Model ===")
     # Create a model with fixed parameters
-    model = SimpleModel(input_size=2, hidden_size=8, output_size=1)
+    model = SimpleModel(input_size=5, hidden_size=16, output_size=1)  # 5 weather features -> 1 temperature prediction
     print(f"Created model: {model}")
     
     # Create dataset
-    X, y = create_xor_dataset(1000)
+    X, y, scaler_y = create_weather_dataset()
     print(f"Created dataset with {len(X)} samples")
     
     # Train the model
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    criterion = nn.MSELoss()  # Use MSE loss for regression
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
     
     # Mini training loop
     model.train()
-    batch_size = 32
+    batch_size = 64
     num_epochs = 10
     
     for epoch in range(num_epochs):
@@ -403,12 +467,12 @@ def test_base_model():
     model.eval()
     with torch.no_grad():
         outputs = model(X)
-        predictions = (torch.sigmoid(outputs) > 0.5).float()
-        accuracy = (predictions == y).float().mean().item()
+        mse = criterion(outputs, y).item()
+        r2 = 1 - mse / torch.var(y).item()
     
-    print(f"Final accuracy: {accuracy:.4f}")
+    print(f"Final R² score: {r2:.4f}")
     print("=== Base Model Test Complete ===\n")
-    return accuracy > 0.9  # Return True if model performs well
+    return r2 > 0.5  # Return True if model performs reasonably well
 
 if __name__ == "__main__":
     print("Script started")
@@ -419,7 +483,7 @@ if __name__ == "__main__":
             print("Base model works well, proceeding with evolution test")
             test_evolution()
         else:
-            print("Base model failed to learn XOR, skipping evolution test")
+            print("Base model failed to learn weather prediction, skipping evolution test")
     except Exception as e:
         print(f"Unhandled exception in main: {e}")
         traceback.print_exc()
