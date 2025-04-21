@@ -116,10 +116,11 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         
         # Get the shape of the reference node from metadata
         reference_node_shape = reference_node.meta['tensor_meta'].shape
-        
+        branch_node_output_features = random.randint(1, 1000)
+
         # Create the branch modules with random shapes
-        branch1_module = nn.Linear(reference_node_shape[-1], random.randint(1, 1000))
-        branch2_module = nn.Linear(reference_node_shape[-1], random.randint(1, 1000))
+        branch1_module = nn.Linear(reference_node_shape[-1], branch_node_output_features)
+        branch2_module = nn.Linear(reference_node_shape[-1], branch_node_output_features)
         
         # Use the utility function to add branch nodes
         graph, new_node, new_node_shape = add_branch_nodes(graph, reference_node, branch1_module, branch2_module)
