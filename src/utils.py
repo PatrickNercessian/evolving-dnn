@@ -220,9 +220,7 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
         # Adapt first branch if needed
         if branch1_shape[-1] != target_size:
             graph, final_branch1_node = adapt_node_shape(graph, branch1_node, branch1_shape[-1], target_size)
-        
-        # Adapt second branch if needed
-        if branch2_shape[-1] != target_size:
+        else:  # Adapt second branch if needed
             graph, final_branch2_node = adapt_node_shape(graph, branch2_node, branch2_shape[-1], target_size)
 
     # Run shape propagation to update metadata for the branch nodes
