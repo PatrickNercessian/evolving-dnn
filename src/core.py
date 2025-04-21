@@ -122,10 +122,7 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         branch2_module = nn.Linear(reference_node_shape[-1], random.randint(1, 1000))
         
         # Use the utility function to add branch nodes
-        graph, new_node, skip_connection_output_shape = add_branch_nodes(graph, reference_node, branch1_module, branch2_module)
-        
-        # Determine the shape of the new node
-        new_node_shape = skip_connection_output_shape
+        graph, new_node, new_node_shape = add_branch_nodes(graph, reference_node, branch1_module, branch2_module)
 
     graph.graph.lint()
     graph.recompile()
