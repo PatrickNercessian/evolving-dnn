@@ -227,12 +227,8 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
 
     # Run shape propagation to update metadata for the branch nodes
     example_input = torch.randn(reference_node_shape)
-    try:
-        ShapeProp(graph).propagate(example_input)
-    except Exception as e:
-        print(f"Error during shape propagation: {e}")
-        print(f"Graph: {graph}")
-
+    ShapeProp(graph).propagate(example_input)
+    
     # Get the inferred output of the skip connection from the shape propagation
     skip_connection_output_shape = final_branch2_node.meta['tensor_meta'].shape
 
