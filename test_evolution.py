@@ -386,7 +386,7 @@ def test_evolution():
             (mutation_add_branch, 0.2),
         ],
         crossover_fns_and_probabilities=[],  # Empty crossover functions
-        target_population_size=3,
+        target_population_size=5,
         num_children_per_generation=3,
         block_size=128,
     )
@@ -394,7 +394,7 @@ def test_evolution():
     # Run evolution for a few generations
     print("Starting evolution...")
     try:
-        evolution.run_evolution(num_generations=2)
+        evolution.run_evolution(num_generations=5)
         
         print("\nEvolution completed!")
         print(f"Best fitness: {evolution.best_fitness}")
@@ -477,13 +477,7 @@ def test_base_model():
 if __name__ == "__main__":
     print("Script started")
     try:
-        # First test the base model
-        base_model_works = test_base_model()
-        if base_model_works:
-            print("Base model works well, proceeding with evolution test")
-            test_evolution()
-        else:
-            print("Base model failed to learn weather prediction, skipping evolution test")
+        test_evolution()
     except Exception as e:
         print(f"Unhandled exception in main: {e}")
         traceback.print_exc()
