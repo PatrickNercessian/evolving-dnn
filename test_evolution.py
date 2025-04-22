@@ -8,6 +8,8 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+from src.visualization import visualize_graph
+
 print("Imports completed")
 
 from src.evolution import Evolution
@@ -78,6 +80,10 @@ def create_weather_dataset():
     X = torch.tensor(X)
     y = torch.tensor(y)
     
+    # Only take first 1000 samples
+    X = X[:1000]
+    y = y[:1000]
+
     return X, y, scaler_y
 
 print("Weather dataset function defined")
@@ -347,7 +353,8 @@ def print_population_graphs(population, generation=None):
     gen_str = f" in Generation {generation}" if generation is not None else ""
     print(f"\n=== Printing graphs for all individuals{gen_str} ===")
     for individual in population:
-        print(f"\nIndividual {individual.id} Graph Structure:")
+        fitness = np.round(individual.fitness, 4) if hasattr(individual, 'fitness') else "Not evaluated"
+        print(f"\nIndividual {individual.id} Graph Structure: [Fitness: {fitness}]")
         print("----------------------------------------")
         for node in individual.graph_module.graph.nodes:
             shape_info = f" -> Shape: {node.meta['tensor_meta'].shape}" if 'meta' in node.__dict__ and 'tensor_meta' in node.meta else ""
@@ -363,6 +370,135 @@ def print_population_graphs(population, generation=None):
             else:
                 print(f"Node: {node.name} ({node.op}){shape_info}")
         print("----------------------------------------")
+
+def visualize_text_graph(graph_module):
+    """
+    Creates a text-based flowchart visualization of the graph module
+    using box drawing characters for better clarity.
+    """
+    print("\nNeural Network Graph Visualization:")
+    print("═══════════════════════════════════")
+    
+    # Get nodes in topological order
+    nodes = list(graph_module.graph.nodes)
+    
+    # Create a dictionary mapping nodes to their children
+    node_to_children = {node: [] for node in nodes}
+    # Create a dictionary mapping nodes to all their direct inputs
+    node_to_inputs = {node: set(node.all_input_nodes) for node in nodes}
+    
+    # Build children relationships
+    for node in nodes:
+        for input_node in node.all_input_nodes:
+            if input_node in node_to_children:
+                node_to_children[input_node].append(node)
+    
+    # Find roots (nodes without inputs or only placeholder inputs)
+    roots = [node for node in nodes if node.op == 'placeholder']
+    
+    # Track visited nodes and their paths
+    visited = set()
+    path_set = set()  # Tracks current path for branch detection
+    
+    # Find nodes with multiple inputs (merge points)
+    merge_points = {node for node in nodes if len(node_to_inputs[node]) > 1}
+    
+    def get_node_info(node):
+        """Get formatted node type and shape info"""
+        # Get node type description
+        if node.op == 'placeholder':
+            type_str = "INPUT"
+        elif node.op == 'output': 
+            type_str = "OUTPUT"
+        elif node.op == 'call_module':
+            module = getattr(graph_module, node.target)
+            type_str = type(module).__name__
+        elif node.op == 'call_function':
+            type_str = node.target.__name__
+        else:
+            type_str = node.op
+        
+        # Get shape info
+        shape_str = f"{node.meta['tensor_meta'].shape}" if 'meta' in node.__dict__ and 'tensor_meta' in node.meta else "unknown"
+        
+        return type_str, shape_str
+    
+    def print_node(node, depth=0, is_last=False, prefix="", branch_name=None):
+        """
+        Recursively print node and its children in a tree-like format
+        branch_name: used to identify which branch we're in for clearer branching visualization
+        """
+        if node in path_set:  # Avoid cycles in the current path
+            return
+        
+        type_str, shape_str = get_node_info(node)
+        
+        # Build the connection line prefix
+        if depth > 0:
+            if is_last:
+                line = prefix + "└── "
+                new_prefix = prefix + "    "
+            else:
+                line = prefix + "├── "
+                new_prefix = prefix + "│   "
+        else:
+            line = ""
+            new_prefix = ""
+        
+        # Format branch information if this is part of a branch
+        branch_info = f" <{branch_name}>" if branch_name else ""
+        
+        # Format merge point information
+        merge_info = " [MERGE POINT]" if node in merge_points and node in visited else ""
+        
+        # Only show full details first time we encounter node
+        if node not in visited:
+            print(f"{line}{node.name}{branch_info} ({type_str}, shape={shape_str}){merge_info}")
+            visited.add(node)
+            
+            # Add node to current path
+            path_set.add(node)
+            
+            # Get all children
+            children = node_to_children[node]
+            
+            # Handle branches: if there are multiple children, label each branch
+            if len(children) > 1:
+                print(f"{new_prefix}│")
+                print(f"{new_prefix}┌─ BRANCH POINT ─┐")
+                
+                # Process each branch with a label
+                for i, child in enumerate(children):
+                    branch_label = f"Branch {i+1}"
+                    is_final = (i == len(children) - 1)
+                    
+                    # Create branch-specific prefix
+                    if is_final:
+                        branch_prefix = new_prefix + "└── "
+                        next_prefix = new_prefix + "    "
+                    else:
+                        branch_prefix = new_prefix + "├── "
+                        next_prefix = new_prefix + "│   "
+                    
+                    print(f"{branch_prefix}{branch_label}:")
+                    print_node(child, depth + 2, is_final, next_prefix, branch_label)
+            elif children:
+                # Single child - no branching
+                print_node(children[0], depth + 1, True, new_prefix)
+            
+            # Remove node from current path when backtracking
+            path_set.remove(node)
+        else:
+            # For already visited nodes, just print reference
+            print(f"{line}{node.name}{branch_info}{merge_info} [↑ see above]")
+    
+    # Print from each root node
+    for i, root in enumerate(roots):
+        print_node(root)
+        if i < len(roots) - 1:
+            print()  # Add spacing between different roots
+    
+    print("═══════════════════════════════════")
 
 def test_evolution():
     print("Starting test_evolution function")
@@ -383,7 +519,7 @@ def test_evolution():
             (mutation_add_linear, 0.4),
             (mutation_add_relu, 0.2),
             (mutation_add_skip_connection, 0.2),
-            (mutation_add_branch, 0.2),
+            (mutation_add_branch, 0.7),
         ],
         crossover_fns_and_probabilities=[],  # Empty crossover functions
         target_population_size=5,
@@ -405,6 +541,7 @@ def test_evolution():
         if evolution.best_individual:
             print(f"Best individual ID: {evolution.best_individual.id}")
             print(f"Best config: {evolution.best_individual.train_config}")
+            print(f"Best fitness: {np.round(evolution.best_individual.fitness, 4)}")
             
             # Print the model architecture with shapes
             print("\nBest Model Architecture:")
@@ -419,6 +556,9 @@ def test_evolution():
                     print(f"Layer: {node.name} ({type(module).__name__}) -> Shape: {node.meta['tensor_meta'].shape}")
                 elif node.op == 'call_function':
                     print(f"Operation: {node.name} ({node.target.__name__}) -> Shape: {node.meta['tensor_meta'].shape}")
+ 
+            # Use the new visualization function
+            visualize_text_graph(evolution.best_individual.graph_module)
         else:
             print("No best individual found.")
     except Exception as e:
