@@ -61,7 +61,7 @@ def get_unique_name(graph, base_name: str) -> str:
         str: A unique name for the node
     """
     # Get list of all module names in graph
-    module_names = [node.target for node in graph.graph.nodes if node.op == "call_module"]
+    module_names = {node.target for node in graph.graph.nodes if node.op == "call_module"}
     
     # Try base name first
     name = base_name
