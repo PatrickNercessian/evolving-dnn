@@ -238,7 +238,7 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
 
 def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
     """
-    Removes a node from the graph
+    Removes a node from the graph, can't be a skip connection or branch node
     
     Args:
         graph: The FX graph
@@ -246,6 +246,14 @@ def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
     Returns:
         graph: The modified graph
     """
+    # Check if reference node is a skip connection or branch node
+    if reference_node.target in (torch.add, torch.cat, torch.mul):
+        raise ValueError("Reference node is a skip connection or branch node, can't be removed")
+    if len(reference_node.args[0].users) > 1:
+        raise ValueError("Reference node is used by multiple nodes, can't be removed")
+    # TODO: Implement different removals for skip connections and branch nodes
+
+
     input_node = reference_node.args[0]
     
     # Get shapes before removing node
