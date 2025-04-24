@@ -215,37 +215,6 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         new_node_input_shape = ref_feature_shape
         new_node_output_shape = ref_feature_shape
 
-    # Add a flatten layer, that flattens every dimension except the batch dimension 
-    elif operation == 'flatten':
-        graph, new_node = add_specific_node(graph, reference_node, nn.Flatten(start_dim=1, end_dim=-1))
-        new_node_shape = (reference_node.meta['tensor_meta'].shape[0], -1)
-
-    # Add a skip connection
-    elif operation == 'skip':
-        first_node = kwargs.get('first_node')
-        if first_node is None:
-            raise ValueError("first_node must be provided for skip operation")
-        second_node = reference_node
-        graph, new_node = add_skip_connection(graph, second_node, first_node)
-        new_node_shape = reference_node.meta['tensor_meta'].shape
-
-    # Add branch node, that branches the input into two paths
-    elif operation == 'branch':
-        # Special case where we add two new nodes to the graph after the reference node BUT DO NOT CONNECT THEM TO USERS YET
-        # We then add a skip connection between the two new nodes
-        # Then we connect the skip connection to the users of the reference node
-        # y = f(x) -> y = h(g(x), k(x))
-        
-        # Get the shape of the reference node from metadata
-        reference_node_shape = reference_node.meta['tensor_meta'].shape
-        branch_node_output_features = random.randint(1, 1000)
-
-        # Create the branch modules with random shapes
-        branch1_module = nn.Linear(reference_node_shape[-1], branch_node_output_features)
-        branch2_module = nn.Linear(reference_node_shape[-1], branch_node_output_features)
-        
-        # Use the utility function to add branch nodes
-        graph, new_node, new_node_shape = add_branch_nodes(graph, reference_node, branch1_module, branch2_module)
 
     graph.graph.lint()
     graph.recompile()
