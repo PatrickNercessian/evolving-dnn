@@ -231,11 +231,8 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
 
     # Run shape propagation again to update all shape metadata
     example_input = torch.randn(next(iter(graph.graph.nodes)).meta['tensor_meta'].shape)  # SHAPE NOTE: Using full shape including batch dimension
-    try:
-        ShapeProp(graph).propagate(example_input)
-    except Exception as e:
-        print(f"Error during shape propagation: {e}")
-        print(f"Graph: {graph}")
+    ShapeProp(graph).propagate(example_input)
+
 
     return graph
 

@@ -195,9 +195,10 @@ def adapt_tensor_size(graph, node, current_size, target_size, target_user=None):
                 node, 
                 torch.repeat_interleave, 
                 kwargs={"repeats": length_multiplier, "dim": 1},
-                target_user=None  # Intermediate node
+                target_user=target_user  # Intermediate node
             )
-            
+            print(f"Added repeat node {repeat_node.name} after node {node.name}, repeats: {length_multiplier}")
+
             if remainder > 0:
                 # Then use circular padding for the remainder
                 graph, adapted_node = add_specific_node(
@@ -206,6 +207,7 @@ def adapt_tensor_size(graph, node, current_size, target_size, target_user=None):
                     nn.CircularPad1d((0, remainder)),
                     target_user=target_user
                 )
+                print(f"Added circular pad node {adapted_node.name} after repeat node {repeat_node.name}, remainder: {remainder}")
             else:
                 adapted_node = repeat_node
         else:
@@ -216,6 +218,7 @@ def adapt_tensor_size(graph, node, current_size, target_size, target_user=None):
                 nn.CircularPad1d((0, target_size - current_size)),
                 target_user=target_user
             )
+            print(f"Added circular pad node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
     else:
         # Need to decrease size - use adaptive pooling
         graph, adapted_node = add_specific_node(
@@ -224,7 +227,8 @@ def adapt_tensor_size(graph, node, current_size, target_size, target_user=None):
             nn.AdaptiveAvgPool1d(target_size),
             target_user=target_user
         )
-        
+        print(f"Added adaptive avg pool node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
+
     return graph, adapted_node
 
 def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
