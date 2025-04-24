@@ -266,7 +266,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
             graph, 
             node, 
             nn.Flatten(start_dim=1, end_dim=-1),
-            target_user=None  # Intermediate node
+            target_user=target_user  # Intermediate node
         )
 
         # Adapt the flattened tensor
@@ -275,7 +275,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
             flatten_node, 
             current_total, 
             target_total, 
-            target_user=None  # Intermediate node
+            target_user=target_user  # Intermediate node
         )
 
         # Add unflatten node
@@ -283,7 +283,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
             graph, 
             adapted_node, 
             nn.Unflatten(dim=1, sizes=target_size),
-            target_user=target_user  # Final node, use the target_user
+            target_user=target_user  # Final node
         )
 
         return graph, unflatten_node
