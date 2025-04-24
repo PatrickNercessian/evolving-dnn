@@ -136,11 +136,7 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
 
     # Run shape propagation again to update all shape metadata
     example_input = torch.randn(next(iter(graph.graph.nodes)).meta['tensor_meta'].shape)
-    try:
-        ShapeProp(graph).propagate(example_input)
-    except Exception as e:
-        print(f"Error during shape propagation: {e}")
-        print(f"Graph: {graph}")
+    ShapeProp(graph).propagate(example_input)
 
     return graph
 
@@ -216,12 +212,10 @@ def adapt_connections(
             target_size = max(first_shape[-1], second_shape[-1])
             
             # Adapt first node if needed
-            if first_shape[-1] != target_size:
-                graph, first_node = adapt_node_shape(graph, first_node, first_shape[-1], target_size)
+            graph, first_node = adapt_node_shape(graph, first_node, first_shape[-1], target_size)
             
             # Adapt second node if needed
-            if second_shape[-1] != target_size:
-                graph, second_node = adapt_node_shape(graph, second_node, second_shape[-1], target_size)
+            graph, second_node = adapt_node_shape(graph, second_node, second_shape[-1], target_size)
             
             # Update the skip connection node's args
             new_node.args = (first_node, second_node)
