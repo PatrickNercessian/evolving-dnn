@@ -170,6 +170,63 @@ def add_skip_connection(graph, second_node, first_node, torch_function=torch.add
 
     return graph, new_node
 
+def adapt_tensor_size(graph, node, current_size, target_size, target_user=None):
+    """
+    Helper function to adapt a tensor's size using repeat_interleave, circular padding, or adaptive pooling.
+    
+    Args:
+        graph: The FX graph
+        node: The node to adapt
+        current_size: Current size (integer)
+        target_size: Target size (integer)
+        target_user: Optional specific node that should use the new node
+    Returns:
+        graph: The modified graph
+        adapted_node: The node after adaptation
+    """
+    if current_size < target_size:
+        length_multiplier = target_size // current_size
+        remainder = target_size % current_size
+        
+        if length_multiplier > 1:
+            # First repeat the tensor as many times as possible
+            graph, repeat_node = add_specific_node(
+                graph, 
+                node, 
+                torch.repeat_interleave, 
+                kwargs={"repeats": length_multiplier, "dim": 1},
+                target_user=None  # Intermediate node
+            )
+            
+            if remainder > 0:
+                # Then use circular padding for the remainder
+                graph, adapted_node = add_specific_node(
+                    graph, 
+                    repeat_node, 
+                    nn.CircularPad1d((0, remainder)),
+                    target_user=target_user
+                )
+            else:
+                adapted_node = repeat_node
+        else:
+            # If we only need to wrap once, just use circular padding
+            graph, adapted_node = add_specific_node(
+                graph, 
+                node, 
+                nn.CircularPad1d((0, target_size - current_size)),
+                target_user=target_user
+            )
+    else:
+        # Need to decrease size - use adaptive pooling
+        graph, adapted_node = add_specific_node(
+            graph, 
+            node, 
+            nn.AdaptiveAvgPool1d(target_size),
+            target_user=target_user
+        )
+        
+    return graph, adapted_node
+
 def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     """
     Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
@@ -192,48 +249,8 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
         return graph, node
     
     if len(current_size) == 1:
-        if current_size < target_size:
-            length_multiplier = target_size[0] // current_size[0]
-            remainder = target_size[0] % current_size[0]
-            
-            if length_multiplier > 1:
-                # First repeat the tensor as many times as possible
-                graph, repeat_node = add_specific_node(
-                    graph, 
-                    node, 
-                    torch.repeat_interleave, 
-                    kwargs={"repeats": length_multiplier, "dim": 1},
-                    target_user=None  # Intermediate node, will be used by next adaptation
-                )
-                
-                if remainder > 0:
-                    # Then use circular padding for the remainder
-                    graph, adapted_node = add_specific_node(
-                        graph, 
-                        repeat_node, 
-                        nn.CircularPad1d((0, remainder)),
-                        target_user=target_user
-                    )
-                else:
-                    adapted_node = repeat_node
-            else:
-                # If we only need to wrap once, just use circular padding
-                graph, adapted_node = add_specific_node(
-                    graph, 
-                    node, 
-                    nn.CircularPad1d((0, target_size[0] - current_size[0])),
-                    target_user=target_user
-                )
-        else:
-            # Need to decrease size - use adaptive pooling
-            graph, adapted_node = add_specific_node(
-                graph, 
-                node, 
-                nn.AdaptiveAvgPool1d(target_size[0]),
-                target_user=target_user
-            )
-
-        return graph, adapted_node
+        # For 1D tensors, directly adapt the size
+        return adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user)
     
     elif len(current_size) > 1:
         # calculate total size of target shape by multiplying all dimensions except the first
@@ -245,49 +262,17 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
             graph, 
             node, 
             nn.Flatten(start_dim=1, end_dim=-1),
-            target_user=None  # Intermediate node, will be used by next adaptation
+            target_user=None  # Intermediate node
         )
 
-        if current_total < target_total:
-            length_multiplier = target_total // current_total
-            remainder = target_total % current_total
-            
-            if length_multiplier > 1:
-                # First repeat the tensor as many times as possible
-                graph, repeat_node = add_specific_node(
-                    graph, 
-                    flatten_node, 
-                    torch.repeat_interleave, 
-                    kwargs={"repeats": length_multiplier, "dim": 1},
-                    target_user=None  # Intermediate node, will be used by next adaptation
-                )
-                
-                if remainder > 0:
-                    # Then use circular padding for the remainder
-                    graph, adapted_node = add_specific_node(
-                        graph, 
-                        repeat_node, 
-                        nn.CircularPad1d((0, remainder)),
-                        target_user=None  # Intermediate node, will be used by unflatten
-                    )
-                else:
-                    adapted_node = repeat_node
-            else:
-                # If we only need to wrap once, just use circular padding
-                graph, adapted_node = add_specific_node(
-                    graph, 
-                    flatten_node, 
-                    nn.CircularPad1d((0, target_total - current_total)),
-                    target_user=None  # Intermediate node, will be used by unflatten
-                )
-        else:
-            # Need to decrease size - use adaptive pooling
-            graph, adapted_node = add_specific_node(
-                graph, 
-                flatten_node, 
-                nn.AdaptiveAvgPool1d(target_total),
-                target_user=None  # Intermediate node, will be used by unflatten
-            )
+        # Adapt the flattened tensor
+        graph, adapted_node = adapt_tensor_size(
+            graph, 
+            flatten_node, 
+            current_total, 
+            target_total, 
+            target_user=None  # Intermediate node
+        )
 
         # Add unflatten node
         graph, unflatten_node = add_specific_node(
