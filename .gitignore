@@ -6,3 +6,4 @@ __pycache__
 token_list
 token_map
 input.txt
+*.csv
