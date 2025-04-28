@@ -261,6 +261,16 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
         target_total = math.prod(target_size)
         current_total = math.prod(current_size)
 
+        if target_total == current_total:
+            # If total elements are the same, just reshape
+            graph, reshape_node = add_specific_node(
+                graph,
+                node,
+                lambda x: x.reshape(-1, *target_size),
+                target_user=target_user
+            )
+            return graph, reshape_node
+
         # Add flatten node
         graph, flatten_node = add_specific_node(
             graph, 
