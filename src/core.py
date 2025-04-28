@@ -6,7 +6,7 @@ import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
 from src.individual_graph_module import IndividualGraphModule
-from src.utils import find_required_shapes, add_specific_node, add_skip_connection, adapt_node_shape, add_branch_nodes
+from src.utils import find_required_shapes, add_specific_node, add_skip_connection, adapt_node_shape, add_branch_nodes, get_feature_dims
 
 
 def get_graph(model: nn.Module, input_shape: tuple):
@@ -60,16 +60,6 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
     
     # Get required shapes before making any modifications
     ref_input_shape, ref_output_shape = find_required_shapes(reference_node)  # SHAPE NOTE: Returns shapes with batch dimension included
-
-    # Helper function to get feature dimensions (excluding batch dimension)
-    def get_feature_dims(shape):
-        if shape is None:
-            return None
-        # Skip the batch dimension (first dimension)
-        if len(shape) > 1:
-            return tuple(shape[1:])
-        else:
-            return tuple(shape)
 
     # Get feature dimensions from reference node (excluding batch)
     ref_feature_shape = get_feature_dims(reference_node.meta['tensor_meta'].shape)
@@ -260,16 +250,6 @@ def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
     output_left_shape = list(input_node.meta['tensor_meta'].shape)  # SHAPE NOTE: Full shape with batch dimension
     input_right_shape = reference_node.meta['tensor_meta'].shape  # SHAPE NOTE: Full shape with batch dimension
     
-    # Helper function to get feature dimensions (excluding batch dimension)
-    def get_feature_dims(shape):
-        if shape is None:
-            return None
-        # Skip the batch dimension (first dimension)
-        if len(shape) > 1:
-            return tuple(shape[1:])
-        else:
-            return tuple(shape)
-    
     # Extract feature dimensions
     output_left_features = get_feature_dims(output_left_shape)
     
@@ -318,16 +298,6 @@ def adapt_connections(
     Returns:
         graph: The modified graph
     """
-    
-    # Helper function to extract feature dimensions (excluding batch dimension)
-    def get_feature_dims(shape):
-        if shape is None:
-            return None
-        # Skip the batch dimension (first dimension)
-        if len(shape) > 1:
-            return tuple(shape[1:])
-        else:
-            return tuple(shape)
     
     # Extract feature dimensions from parent and child shapes
     parent_features = get_feature_dims(parent_output_shape)

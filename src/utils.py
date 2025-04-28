@@ -365,3 +365,20 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
     branch2_node.args = (reference_node,)
 
     return graph, new_node, skip_connection_output_shape
+
+def get_feature_dims(shape):
+    """
+    Helper function to get feature dimensions (excluding batch dimension) from a shape tuple.
+    
+    Args:
+        shape: A shape tuple that may include batch dimension
+    Returns:
+        tuple: Feature dimensions only (excluding batch dimension)
+    """
+    if shape is None:
+        return None
+    # Skip the batch dimension (first dimension)
+    if len(shape) > 1:
+        return tuple(shape[1:])
+    else:
+        return tuple(shape)
