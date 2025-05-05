@@ -161,16 +161,16 @@ def add_skip_connection(graph, second_node, first_node, torch_function=torch.add
     with graph.graph.inserting_after(second_node):
         new_node = graph.graph.call_function(
             torch_function,
-            args=(second_node, first_node),
+            args=(first_node, second_node),
         )
     
     # Update connections
     second_node.replace_all_uses_with(new_node)
-    new_node.args = (second_node, first_node)
+    new_node.args = (first_node, second_node)
 
     return graph, new_node
 
-def adapt_tensor_size(graph, node, current_size, target_size, target_user=None):
+def adapt_tensor_size(graph, node, current_size: int, target_size: int, target_user=None):
     """
     Helper function to adapt a tensor's size using repeat_interleave, circular padding, or adaptive pooling.
     
@@ -186,9 +186,10 @@ def adapt_tensor_size(graph, node, current_size, target_size, target_user=None):
     """
     if current_size < target_size:
         length_multiplier = target_size // current_size
-        remainder = target_size % current_size
         
         if length_multiplier > 1:
+            remainder = target_size % current_size
+        
             # First repeat the tensor as many times as possible
             graph, repeat_node = add_specific_node(
                 graph, 
@@ -257,7 +258,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
         return adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user)
     
     elif len(current_size) > 1:
-        # calculate total size of target shape by multiplying all dimensions except the first
+        # calculate total size of target shape by multiplying all feature dimensions
         target_total = math.prod(target_size)
         current_total = math.prod(current_size)
 
@@ -315,9 +316,6 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
     branch1_name = get_unique_name(graph, "branch1")
     branch2_name = get_unique_name(graph, "branch2")
     
-    # Get the shape of the reference node from metadata
-    reference_node_shape = reference_node.meta['tensor_meta'].shape
-    
     graph.add_submodule(branch1_name, branch1_module)
     graph.add_submodule(branch2_name, branch2_module)
 
@@ -340,9 +338,9 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
     example_input = torch.randn(placeholder_shape)
     ShapeProp(graph).propagate(example_input)
     
-    # Infer the shapes of the branch nodes from the metadata
-    branch1_shape = tuple(branch1_node.meta['tensor_meta'].shape[1:])
-    branch2_shape = tuple(branch2_node.meta['tensor_meta'].shape[1:])
+    # Infer the shapes of the branch nodes from the metadata, pass through get_feature_dims to remove batch dimension
+    branch1_shape = get_feature_dims(branch1_node.meta['tensor_meta'].shape)
+    branch2_shape = get_feature_dims(branch2_node.meta['tensor_meta'].shape)
     
     # Initialize variables to track the final nodes to use in skip connection
     final_branch1_node = branch1_node
@@ -381,7 +379,7 @@ def get_feature_dims(shape):
     Helper function to get feature dimensions (excluding batch dimension) from a shape tuple.
     
     Args:
-        shape: A shape tuple that may include batch dimension
+        shape: A shape tuple that includes batch dimension
     Returns:
         tuple: Feature dimensions only (excluding batch dimension)
     """

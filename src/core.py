@@ -57,10 +57,7 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
     Returns:
         graph: The modified graph
     """
-    
-    # Get required shapes before making any modifications
-    ref_input_shape, ref_output_shape = find_required_shapes(reference_node)  # SHAPE NOTE: Returns shapes with batch dimension included
-
+  
     # Get feature dimensions from reference node (excluding batch)
     ref_feature_shape = get_feature_dims(reference_node.meta['tensor_meta'].shape)
     
@@ -72,11 +69,7 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         
         # If not provided in kwargs, try to use the ref_feature_shape or default to random
         if input_size is None:
-            if len(ref_feature_shape) > 0:
-                input_size = ref_feature_shape[-1]
-            else:
-                input_size = random.randint(1, 1000)
-                print("Warning: Using random input_size for linear layer")
+            input_size = ref_feature_shape[-1]
                 
         if output_size is None:
             output_size = random.randint(1, 1000)
@@ -211,10 +204,10 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         
     # Fix the connections with clear input/output shape distinction
     adapt_connections(graph, new_node, 
-                     parent_output_shape=ref_output_shape,  # Use reference node's output shape as parent output
+                     parent_output_shape=ref_feature_shape,  # Use reference node's output shape as parent output
                      new_node_input_features=new_node_input_shape,
                      new_node_output_features=new_node_output_shape,
-                     child_input_shape=ref_output_shape)
+                     child_input_shape=ref_feature_shape)
 
     graph.graph.lint()
     graph.recompile()
@@ -247,7 +240,7 @@ def remove_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node):
     input_node = reference_node.args[0]
     
     # Get shapes before removing node
-    output_left_shape = list(input_node.meta['tensor_meta'].shape)  # SHAPE NOTE: Full shape with batch dimension
+    output_left_shape = input_node.meta['tensor_meta'].shape  # SHAPE NOTE: Full shape with batch dimension
     input_right_shape = reference_node.meta['tensor_meta'].shape  # SHAPE NOTE: Full shape with batch dimension
     
     # Extract feature dimensions
@@ -307,8 +300,8 @@ def adapt_connections(
     # TODO: Handle any kind of skip connection (e.g. torch.cat, torch.mul, etc.)
     if new_node.target == torch.add:
         # Get shapes of both input nodes
-        first_node = new_node.args[1]
-        second_node = new_node.args[0]
+        first_node = new_node.args[0]
+        second_node = new_node.args[1]
         first_shape = first_node.meta['tensor_meta'].shape
         second_shape = second_node.meta['tensor_meta'].shape
         
