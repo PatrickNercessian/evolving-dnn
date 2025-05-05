@@ -69,11 +69,10 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         
         # If not provided in kwargs, try to use the ref_feature_shape or default to random
         if input_size is None:
-            input_size = ref_feature_shape[-1]
+            raise ValueError("input_size must be provided for linear layer")
                 
         if output_size is None:
-            output_size = random.randint(1, 1000)
-            print("Warning: Using random output_size for linear layer")
+            raise ValueError("output_size must be provided for linear layer")
         
         # Create separate input and output feature shapes
         # Make sure to create new tuples as tuples are immutable
@@ -155,15 +154,15 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
         # Get the feature shape of the reference node
         input_size = ref_feature_shape[-1]
         
-        # Get branch output sizes from kwargs if provided, otherwise use random or default values
+        # Get branch output sizes from kwargs if provided
         branch1_out_size = kwargs.get('branch1_out_size')
         branch2_out_size = kwargs.get('branch2_out_size')
         
         if branch1_out_size is None:
-            branch1_out_size = input_size
-        
+            raise ValueError("branch1_out_size must be provided for branch operation")
+
         if branch2_out_size is None:
-            branch2_out_size = input_size
+            raise ValueError("branch2_out_size must be provided for branch operation")
         
         print(f"Branch modules: input_size={input_size}, branch1_out={branch1_out_size}, branch2_out={branch2_out_size}")
         
@@ -183,7 +182,9 @@ def add_node(graph: torch.fx.GraphModule, reference_node: torch.fx.Node, operati
     # Add a dropout layer
     elif operation == 'dropout':
         # Get dropout probability from kwargs if provided, otherwise use default
-        prob = kwargs.get('prob', 0.5)
+        prob = kwargs.get('prob')
+        if prob is None:
+            raise ValueError("prob must be provided for dropout operation")
         print(f"Adding dropout layer with probability {prob}")
         
         graph, new_node = add_specific_node(graph, reference_node, nn.Dropout(p=prob))
