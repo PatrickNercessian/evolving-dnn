@@ -69,7 +69,12 @@ class Evolution:
                 else:
                     child = self._mutate(copy.deepcopy(parent1))
                 child.id = self.id_counter
-                child.fitness = self.fitness_fn(child)
+                try:
+                    child.fitness = self.fitness_fn(child)
+                except Exception as e:
+                    print(f"Error in fitness function: {e}")
+                    child.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
+                    print(child)
                 self.id_counter += 1
                 new_children.append(child)
             

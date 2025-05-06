@@ -74,32 +74,63 @@ def get_unique_name(graph, base_name: str) -> str:
     
     return name
 
-def add_specific_node(graph, reference_node, module):
+def add_specific_node(graph, reference_node, module_or_function, kwargs=None, target_user=None):
     """
     Helper function to add a new node to the graph after the reference node.
+    Supports both PyTorch modules and functions.
     
     Args:
         graph: The FX graph
         reference_node: The node after which the new node will be inserted
-        module: The PyTorch module to add
+        module_or_function: The PyTorch module or function to add
+        kwargs: Optional keyword arguments for the function call (only used for functions)
+        target_user: Optional specific node that should use the new node. If None, all users will be updated.
     Returns:
         graph: The modified graph
         new_node: The newly added node
     """
-    name = get_unique_name(graph, module.__class__.__name__)
-    graph.add_submodule(name, module)
+    if kwargs is None:
+        kwargs = {}
+        
+    # Check if we're adding a module or a function
+    if isinstance(module_or_function, nn.Module):
+        # Add a module
+        name = get_unique_name(graph, module_or_function.__class__.__name__)
+        graph.add_submodule(name, module_or_function)
+        
+        # Add node after reference_node
+        with graph.graph.inserting_after(reference_node):
+            new_node = graph.graph.call_module(
+                module_name=name,
+                args=(reference_node,),
+                kwargs=kwargs,
+            )
+    else:
+        # Add a function
+        with graph.graph.inserting_after(reference_node):
+            new_node = graph.graph.call_function(
+                module_or_function,
+                args=(reference_node,) if not isinstance(reference_node, tuple) else reference_node,
+                kwargs=kwargs,
+            )
     
-    # Add node after reference_node
-    with graph.graph.inserting_after(reference_node):
-        new_node = graph.graph.call_module(
-            module_name=name,
-            args=(reference_node,),
-            kwargs={},
-        )
+    # Update connections based on target_user
+    if target_user is not None:
+        # Find the index of reference_node in target_user's args
+        for i, arg in enumerate(target_user.args):
+            if arg is reference_node:
+                # Update just this specific connection
+                target_user.args = tuple(new_node if x is reference_node else x for x in target_user.args)
+                break
+    else:
+        # Update all users of the reference node to use the new node
+        reference_node.replace_all_uses_with(new_node)
     
-    # Update connections
-    reference_node.replace_all_uses_with(new_node)
-    new_node.args = (reference_node,)
+    # Set the input of the new node
+    if isinstance(reference_node, tuple):
+        new_node.args = reference_node
+    else:
+        new_node.args = (reference_node,)
     
     return graph, new_node
 
@@ -130,39 +161,143 @@ def add_skip_connection(graph, second_node, first_node, torch_function=torch.add
     with graph.graph.inserting_after(second_node):
         new_node = graph.graph.call_function(
             torch_function,
-            args=(second_node, first_node),
+            args=(first_node, second_node),
         )
     
     # Update connections
     second_node.replace_all_uses_with(new_node)
-    new_node.args = (second_node, first_node)
+    new_node.args = (first_node, second_node)
 
     return graph, new_node
 
-def adapt_node_shape(graph, node, current_size, target_size):
+def adapt_tensor_size(graph, node, current_size: int, target_size: int, target_user=None):
     """
-    Adapts a node's output shape to match a target size using either adaptive pooling or circular padding.
+    Helper function to adapt a tensor's size using repeat_interleave, circular padding, or adaptive pooling.
+    
+    Args:
+        graph: The FX graph
+        node: The node to adapt
+        current_size: Current size (integer)
+        target_size: Target size (integer)
+        target_user: Optional specific node that should use the new node
+    Returns:
+        graph: The modified graph
+        adapted_node: The node after adaptation
+    """
+    if current_size < target_size:
+        length_multiplier = target_size // current_size
+        
+        if length_multiplier > 1:
+            remainder = target_size % current_size
+        
+            # First repeat the tensor as many times as possible
+            graph, repeat_node = add_specific_node(
+                graph, 
+                node, 
+                torch.repeat_interleave, 
+                kwargs={"repeats": length_multiplier, "dim": 1},
+                target_user=target_user  # Intermediate node
+            )
+            print(f"Added repeat node {repeat_node.name} after node {node.name}, repeats: {length_multiplier}")
+
+            if remainder > 0:
+                # Then use circular padding for the remainder
+                graph, adapted_node = add_specific_node(
+                    graph, 
+                    repeat_node, 
+                    nn.CircularPad1d((0, remainder)),
+                    target_user=target_user
+                )
+                print(f"Added circular pad node {adapted_node.name} after repeat node {repeat_node.name}, remainder: {remainder}")
+            else:
+                adapted_node = repeat_node
+        else:
+            # If we only need to wrap once, just use circular padding
+            graph, adapted_node = add_specific_node(
+                graph, 
+                node, 
+                nn.CircularPad1d((0, target_size - current_size)),
+                target_user=target_user
+            )
+            print(f"Added circular pad node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
+    else:
+        # Need to decrease size - use adaptive pooling
+        graph, adapted_node = add_specific_node(
+            graph, 
+            node, 
+            nn.AdaptiveAvgPool1d(target_size),
+            target_user=target_user
+        )
+        print(f"Added adaptive avg pool node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
+
+    return graph, adapted_node
+
+def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
+    """
+    Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
     
     Args:
         graph: The FX graph
         node: The node whose shape needs to be adapted
-        current_size: Current size of the node's output
-        target_size: Desired size of the node's output
+        current_size: Current size of the node's output, no batch dimension
+        target_size: Desired size of the node's output, no batch dimension
+        target_user: Optional specific node that should use the adapted output. If None, all users will be updated.
     Returns:
         graph: The modified graph
         adapted_node: The node after shape adaptation
     """
+    # Convert current_size and target_size to tuples if they are not already
+    current_size = tuple(current_size)
+    target_size = tuple(target_size)
+    
     if current_size == target_size:
         return graph, node
-        
-    if current_size < target_size:
-        # Need to increase size - use circular padding
-        graph, adapted_node = add_specific_node(graph, node, nn.CircularPad1d((0, target_size - current_size)))
-    else:
-        # Need to decrease size - use adaptive pooling
-        graph, adapted_node = add_specific_node(graph, node, nn.AdaptiveAvgPool1d(target_size))
-        
-    return graph, adapted_node
+    
+    if len(current_size) == 1:
+        # For 1D tensors, directly adapt the size
+        return adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user)
+    
+    elif len(current_size) > 1:
+        # calculate total size of target shape by multiplying all feature dimensions
+        target_total = math.prod(target_size)
+        current_total = math.prod(current_size)
+
+        if target_total == current_total:
+            # If total elements are the same, just reshape
+            graph, reshape_node = add_specific_node(
+                graph,
+                node,
+                lambda x: x.reshape(-1, *target_size),
+                target_user=target_user
+            )
+            return graph, reshape_node
+
+        # Add flatten node
+        graph, flatten_node = add_specific_node(
+            graph, 
+            node, 
+            nn.Flatten(start_dim=1, end_dim=-1),
+            target_user=target_user  # Intermediate node
+        )
+
+        # Adapt the flattened tensor
+        graph, adapted_node = adapt_tensor_size(
+            graph, 
+            flatten_node, 
+            current_total, 
+            target_total, 
+            target_user=target_user  # Intermediate node
+        )
+
+        # Add unflatten node
+        graph, unflatten_node = add_specific_node(
+            graph, 
+            adapted_node, 
+            nn.Unflatten(dim=1, sizes=target_size),
+            target_user=target_user  # Final node
+        )
+
+        return graph, unflatten_node
 
 def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
     """
@@ -180,9 +315,6 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
     # Generate unique names for the branch nodes
     branch1_name = get_unique_name(graph, "branch1")
     branch2_name = get_unique_name(graph, "branch2")
-    
-    # Get the shape of the reference node from metadata
-    reference_node_shape = reference_node.meta['tensor_meta'].shape
     
     graph.add_submodule(branch1_name, branch1_module)
     graph.add_submodule(branch2_name, branch2_module)
@@ -202,31 +334,28 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
         )
     
     # Run shape propagation to update metadata for the new nodes
-    example_input = torch.randn(reference_node_shape)
+    placeholder_shape = next(iter(graph.graph.nodes)).meta['tensor_meta'].shape
+    example_input = torch.randn(placeholder_shape)
     ShapeProp(graph).propagate(example_input)
     
-    # Infer the shapes of the branch nodes from the metadata
-    branch1_shape = branch1_node.meta['tensor_meta'].shape
-    branch2_shape = branch2_node.meta['tensor_meta'].shape
+    # Infer the shapes of the branch nodes from the metadata, pass through get_feature_dims to remove batch dimension
+    branch1_shape = get_feature_dims(branch1_node.meta['tensor_meta'].shape)
+    branch2_shape = get_feature_dims(branch2_node.meta['tensor_meta'].shape)
     
     # Initialize variables to track the final nodes to use in skip connection
     final_branch1_node = branch1_node
     final_branch2_node = branch2_node
     
     # Adapt branch nodes if needed to ensure they have compatible shapes
-    if branch1_shape[-1] != branch2_shape[-1]:
-        target_size = max(branch1_shape[-1], branch2_shape[-1])
-        
-        # Adapt first branch if needed
-        if branch1_shape[-1] != target_size:
-            graph, final_branch1_node = adapt_node_shape(graph, branch1_node, branch1_shape[-1], target_size)
-        else:  # Adapt second branch if needed
-            graph, final_branch2_node = adapt_node_shape(graph, branch2_node, branch2_shape[-1], target_size)
+    if branch1_shape != branch2_shape:    
+        # Adapt first branch
+        graph, final_branch1_node = adapt_node_shape(graph, branch1_node, branch1_shape, branch2_shape)
 
     # Run shape propagation to update metadata for the branch nodes
-    example_input = torch.randn(reference_node_shape)
+    placeholder_shape = next(iter(graph.graph.nodes)).meta['tensor_meta'].shape
+    example_input = torch.randn(placeholder_shape)
     ShapeProp(graph).propagate(example_input)
-    
+
     # Get the inferred output of the skip connection from the shape propagation
     skip_connection_output_shape = final_branch2_node.meta['tensor_meta'].shape
 
@@ -244,3 +373,20 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
     branch2_node.args = (reference_node,)
 
     return graph, new_node, skip_connection_output_shape
+
+def get_feature_dims(shape):
+    """
+    Helper function to get feature dimensions (excluding batch dimension) from a shape tuple.
+    
+    Args:
+        shape: A shape tuple that includes batch dimension
+    Returns:
+        tuple: Feature dimensions only (excluding batch dimension)
+    """
+    if shape is None:
+        return None
+    # Skip the batch dimension (first dimension)
+    if len(shape) > 1:
+        return tuple(shape[1:])
+    else:
+        return tuple(shape)
