@@ -5,7 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from src.core import get_graph
 from src.visualization import visualize_graph
-from src.utils import adapt_node_output_shape
+from src.utils import adapt_node_shape, get_unique_name
 
 from mingpt.model import GPT
 from mingpt.utils import CfgNode as CN
@@ -164,7 +164,13 @@ def insert_subgraph(
             tgt_shape = target_input.tensor_meta.shape
             adapted_node = target_input
             if src_shape != tgt_shape:
-                target_graph, adapted_node = adapt_node_output_shape(target_graph, target_input, tgt_shape[-1], src_shape[-1])
+                target_graph, adapted_node = adapt_node_shape(
+                    target_graph,
+                    node=target_input,
+                    current_size=tgt_shape,
+                    target_size=src_shape,
+                    target_user=node
+                )
             new_args = (adapted_node,)
         else:
             # Map args from old_to_new
