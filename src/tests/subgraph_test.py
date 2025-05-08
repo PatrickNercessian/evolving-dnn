@@ -146,10 +146,10 @@ def insert_subgraph(
     # 1. Copy modules if needed
     for node in subgraph_nodes:
         if node.op == "call_module":
-            # Copy the module to the target graph if not already present
+            # Copy the module to the target graph
             module = node.graph.owning_module.get_submodule(node.target)
-            if not hasattr(target_graph, node.target):  # TODO we should always add it, since we're doing names like linear3, and they might be different. But I need to do the unique name gen again
-                target_graph.add_submodule(node.target, module)
+            name = get_unique_name(target_graph, node.target)  # TODO this could duplicate modules if they're already in there. I wonder if we can check of equality without relying on names. Or maybe the names can be a hash of the module?
+            target_graph.add_submodule(name, module)
 
     # 2. Map old nodes to new nodes in the target graph
     old_to_new = {}
