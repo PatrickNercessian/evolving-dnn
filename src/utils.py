@@ -6,6 +6,8 @@ import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 import random
 
+from src.individual_graph_module import IndividualGraphModule
+
 
 def find_required_shapes(node):
     """
@@ -299,7 +301,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
 
         return graph, unflatten_node
 
-def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
+def add_branch_nodes(graph: IndividualGraphModule, reference_node, branch1_module, branch2_module):
     """
     Adds two branch nodes in parallel after the reference node and connects them with a skip connection.
     
@@ -334,9 +336,7 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
         )
     
     # Run shape propagation to update metadata for the new nodes
-    placeholder_shape = next(iter(graph.graph.nodes)).meta['tensor_meta'].shape
-    example_input = torch.randn(placeholder_shape)
-    ShapeProp(graph).propagate(example_input)
+    ShapeProp(graph).propagate(graph.example_input)
     
     # Infer the shapes of the branch nodes from the metadata, pass through get_feature_dims to remove batch dimension
     branch1_shape = get_feature_dims(branch1_node.meta['tensor_meta'].shape)
@@ -352,9 +352,7 @@ def add_branch_nodes(graph, reference_node, branch1_module, branch2_module):
         graph, final_branch1_node = adapt_node_shape(graph, branch1_node, branch1_shape, branch2_shape)
 
     # Run shape propagation to update metadata for the branch nodes
-    placeholder_shape = next(iter(graph.graph.nodes)).meta['tensor_meta'].shape
-    example_input = torch.randn(placeholder_shape)
-    ShapeProp(graph).propagate(example_input)
+    ShapeProp(graph).propagate(graph.example_input)
 
     # Get the inferred output of the skip connection from the shape propagation
     skip_connection_output_shape = final_branch2_node.meta['tensor_meta'].shape

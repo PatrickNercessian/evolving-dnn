@@ -144,12 +144,14 @@ def insert_subgraph(
         Modified target_graph.
     """
     # 1. Copy modules if needed
+    new_node_names = set()
     for node in subgraph_nodes:
         if node.op == "call_module":
             # Copy the module to the target graph
             module = node.graph.owning_module.get_submodule(node.target)
             name = get_unique_name(target_graph, node.target)  # TODO this could duplicate modules if they're already in there. I wonder if we can check of equality without relying on names. Or maybe the names can be a hash of the module?
             target_graph.add_submodule(name, module)
+            new_node_names.add(name)
 
     # 2. Map old nodes to new nodes in the target graph
     old_to_new = {}
@@ -198,7 +200,7 @@ def insert_subgraph(
 
     target_graph.graph.lint()
     target_graph.recompile()
-    return target_graph
+    return target_graph, new_node_names
 
 # TESTING STUFF BELOW
 if __name__ == "__main__":
@@ -215,11 +217,12 @@ if __name__ == "__main__":
     config.resid_pdrop = 0.1
     config.is_proxy_for_fx = True
 
-    example_input_shape = (1, 10)
     model1 = GPT(config)
-    graph1 = get_graph(model1, example_input_shape)
+    example_input = torch.randint(0, config.vocab_size, (1, 1024))
+    print("example_input", example_input)
+    graph1 = get_graph(model1, example_input=example_input)
     model2 = GPT(config)
-    graph2 = get_graph(model2, example_input_shape)
+    graph2 = get_graph(model2, example_input=example_input)
 
     # print(graph.graph)
 
@@ -241,9 +244,9 @@ if __name__ == "__main__":
             best_input_boundary_nodes = input_boundary_nodes
             best_output_boundary_nodes = output_boundary_nodes
 
-    print(best_subgraph_nodes)
-    print(best_input_boundary_nodes)
-    print(best_output_boundary_nodes)
+    # print(best_subgraph_nodes)
+    # print(best_input_boundary_nodes)
+    # print(best_output_boundary_nodes)
 
     # Extract node names for highlighting
     subgraph_node_names = {node.name for node in best_subgraph_nodes}
@@ -281,6 +284,6 @@ if __name__ == "__main__":
     print(input_mapping)
     print(output_mapping)
 
-    graph2 = insert_subgraph(graph2, best_subgraph_nodes, input_mapping, output_mapping)
+    graph2, new_node_names = insert_subgraph(graph2, best_subgraph_nodes, input_mapping, output_mapping)
 
-    visualize_graph(graph2, "model_graph_highlighted", "graph_highlighted.svg", highlight_nodes=subgraph_node_names)
+    visualize_graph(graph2, "model_graph_highlighted", "graph_highlighted.svg", highlight_nodes=new_node_names)
