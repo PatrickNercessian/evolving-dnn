@@ -93,6 +93,7 @@ def find_subgraph_connections(target_graph_module: torch.fx.GraphModule, input_n
         if node1.meta["tensor_meta"].dtype != node2.meta["tensor_meta"].dtype:
             return False
         
+        # TODO why did I comment this out, I forgot? Do we want it?
         # if not hasattr(node1.meta["tensor_meta"], "shape") or not hasattr(node2.meta["tensor_meta"], "shape"):
         #     return False
             
