@@ -1,3 +1,4 @@
+from collections import deque, defaultdict
 import sys
 import os
 import random
@@ -35,7 +36,7 @@ def random_subgraph(graph_module, num_nodes):
         current_node = frontier_nodes.pop()
         candidate_nodes = set()
         for neighbor_node in (*current_node.all_input_nodes, *current_node.users):
-            print(neighbor_node.name)
+            # print(neighbor_node.name)
             if neighbor_node not in subgraph_nodes and neighbor_node.op != "placeholder" and neighbor_node.op != "output" and not "cross_entropy" in neighbor_node.name and not "targets" in neighbor_node.name:
                 candidate_nodes.add(neighbor_node)
         
@@ -52,13 +53,12 @@ def random_subgraph(graph_module, num_nodes):
     
     return subgraph_nodes, input_nodes, output_nodes
 
-def find_potential_subgraph_connections(target_graph, subgraph_nodes, input_nodes, output_nodes):
+def find_subgraph_connections(target_graph_module: torch.fx.GraphModule, input_nodes: set[torch.fx.Node], output_nodes: set[torch.fx.Node]):
     """
     Attempts to insert a subgraph into a target graph by finding compatible connection points.
     
     Args:
         target_graph: The graph to insert the subgraph into
-        subgraph_nodes: Set of nodes in the subgraph
         input_nodes: Set of nodes in the subgraph that receive external inputs
         output_nodes: Set of nodes in the subgraph that provide external outputs
     
@@ -66,7 +66,7 @@ def find_potential_subgraph_connections(target_graph, subgraph_nodes, input_node
         A tuple of (candidate_inputs, candidate_outputs) where each element is a dict mapping
         boundary nodes to potential matching nodes in the target graph
     """
-    target_graph_nodes = list(target_graph.graph.nodes)
+    target_graph_nodes = list(target_graph_module.graph.nodes)
     
     def are_shapes_adaptable(shape1, shape2):
         # Both shapes should have same number of dimensions
@@ -83,15 +83,21 @@ def find_potential_subgraph_connections(target_graph, subgraph_nodes, input_node
             return False
             
         # Check tensor metadata
-        if not hasattr(node1, 'tensor_meta') or not hasattr(node2, 'tensor_meta'):
+        if "tensor_meta" not in node1.meta or "tensor_meta" not in node2.meta:
             return False
+        
+        if not hasattr(node1.meta["tensor_meta"], "dtype") or not hasattr(node2.meta["tensor_meta"], "dtype"):
+            return False  # TODO can we handle this better? we were getting errors with split module nodes
             
         # Check tensor properties
-        if node1.tensor_meta.dtype != node2.tensor_meta.dtype:
+        if node1.meta["tensor_meta"].dtype != node2.meta["tensor_meta"].dtype:
             return False
+        
+        # if not hasattr(node1.meta["tensor_meta"], "shape") or not hasattr(node2.meta["tensor_meta"], "shape"):
+        #     return False
             
         # Check if shapes can be adapted
-        if not are_shapes_adaptable(node1.tensor_meta.shape, node2.tensor_meta.shape):
+        if not are_shapes_adaptable(node1.meta["tensor_meta"].shape, node2.meta["tensor_meta"].shape):
             return False
             
         return True
@@ -104,9 +110,18 @@ def find_potential_subgraph_connections(target_graph, subgraph_nodes, input_node
                 all_candidates[node] = candidates
         return all_candidates
     
-    return get_candidates(input_nodes), get_candidates(output_nodes)
+    print("input_nodes", input_nodes)
+    print("output_nodes", output_nodes)
+    input_mapping, _ = _select_random_mapping(target_graph_module.graph, input_nodes, get_candidates(input_nodes))
+    output_mapping, last_target_input_node = _select_random_mapping(target_graph_module.graph, output_nodes, get_candidates(output_nodes), set(input_mapping.values()))
+    return input_mapping, last_target_input_node, output_mapping
 
-def _select_random_mapping(boundary_nodes, candidates_dict):
+def _select_random_mapping(
+    target_graph: torch.fx.Graph,
+    boundary_nodes: set[torch.fx.Node],
+    candidates_dict: dict[torch.fx.Node, list[torch.fx.Node]],
+    nodes_before: set[torch.fx.Node]|None = None
+):
     """
     Randomly selects a compatible target node for each boundary node, avoiding clashes (no candidate is selected more than once).
     Args:
@@ -114,21 +129,44 @@ def _select_random_mapping(boundary_nodes, candidates_dict):
         candidates_dict: Dict mapping boundary nodes to lists of compatible target nodes.
     Returns:
         Dict mapping subgraph boundary node -> selected target node.
+        Topologically last node in nodes_before.
     """
+    visited_nodes = _get_all_before_nodes(target_graph, nodes_before)
+    print("visited_nodes", visited_nodes)
+    last_node = visited_nodes[-1] if visited_nodes else None
+    visited_nodes = set(visited_nodes)
+
     mapping = {}
     used_candidates = set()
     for node in boundary_nodes:
-        candidates = [c for c in candidates_dict.get(node, []) if c not in used_candidates]
+        candidates = [c for c in candidates_dict.get(node, []) if c not in used_candidates and c not in visited_nodes]
         if candidates:
             selected = random.choice(candidates)
             mapping[node] = selected
             used_candidates.add(selected)
-    return mapping
+    return mapping, last_node
+
+def _get_all_before_nodes(target_graph: torch.fx.Graph, nodes_before: set[torch.fx.Node]):
+    node_list = target_graph.nodes
+    visited_nodes = []
+    if nodes_before is not None:
+        visited_nodes_before = set()
+        for node in node_list:
+            visited_nodes.append(node)
+            if node not in nodes_before:
+                continue
+
+            visited_nodes_before.add(node)
+            if visited_nodes_before == nodes_before:
+                break
+
+    return visited_nodes
 
 def insert_subgraph(
     target_graph: torch.fx.GraphModule,
     subgraph_nodes: set[torch.fx.Node],
     input_mapping: dict[torch.fx.Node, torch.fx.Node],
+    last_target_input_node: torch.fx.Node,
     output_mapping: dict[torch.fx.Node, torch.fx.Node],
 ):
     """
@@ -145,25 +183,31 @@ def insert_subgraph(
     """
     # 1. Copy modules if needed
     new_node_names = set()
+    module_name_map = {}
     for node in subgraph_nodes:
         if node.op == "call_module":
             # Copy the module to the target graph
             module = node.graph.owning_module.get_submodule(node.target)
-            name = get_unique_name(target_graph, node.target)  # TODO this could duplicate modules if they're already in there. I wonder if we can check of equality without relying on names. Or maybe the names can be a hash of the module?
+            name = get_unique_name(target_graph, node.target)
             target_graph.add_submodule(name, module)
             new_node_names.add(name)
+            module_name_map[node.target] = name
 
     # 2. Map old nodes to new nodes in the target graph
     old_to_new = {}
 
     # 3. Insert nodes in topological order
-    for node in subgraph_nodes:
-        # Handle input boundary nodes
-        if node in input_mapping:
+    topo_order = kanh_algo(subgraph_nodes)
+
+    print("topo_order", topo_order)
+    print("input_mapping", input_mapping)
+    for i, node in enumerate(topo_order):
+        print("inserting node", node)
+        if node in input_mapping:  # Handle input boundary nodes
             target_input = input_mapping[node]
             # Adapt shape if needed
-            src_shape = node.tensor_meta.shape
-            tgt_shape = target_input.tensor_meta.shape
+            src_shape = node.meta["tensor_meta"].shape
+            tgt_shape = target_input.meta["tensor_meta"].shape
             adapted_node = target_input
             if src_shape != tgt_shape:
                 target_graph, adapted_node = adapt_node_shape(
@@ -173,34 +217,68 @@ def insert_subgraph(
                     target_size=src_shape,
                     target_user=node
                 )
-            new_args = (adapted_node,)
+            new_args = (adapted_node, *node.args[1:])  # TODO this always replaces the first arg. Is that what we want?
+            print(f"inserting {node} after new target graph node {adapted_node}")
+            new_node = _insert_node(target_graph, after_node=adapted_node, node=node, new_args=new_args, module_name_map=module_name_map)
         else:
             # Map args from old_to_new
+            # TODO I think we'd never theoretically get the old_to_new.get(arg, arg) default arg case, because it should already be in the old_to_new dict (since all the input_mapping ones should have already been done)
             new_args = tuple(old_to_new.get(arg, arg) if isinstance(arg, torch.fx.Node) else arg for arg in node.args)
+            after_node = old_to_new[topo_order[i-1]] if i > 0 else last_target_input_node
+            new_node = _insert_node(target_graph, after_node=after_node, node=node, new_args=new_args, module_name_map=module_name_map)
 
-        # Insert node
-        if node.op == "call_module":
-            new_node = target_graph.graph.call_module(node.target, args=new_args, kwargs=node.kwargs)
-        elif node.op == "call_function":
-            new_node = target_graph.graph.call_function(node.target, args=new_args, kwargs=node.kwargs)
-        elif node.op == "call_method":
-            new_node = target_graph.graph.call_method(node.target, args=new_args, kwargs=node.kwargs)
-        else:
-            # For placeholder/output, skip (handled separately)
-            continue
-
+        print("new_args", new_args)
         old_to_new[node] = new_node
 
     # 4. For each output boundary node, replace the input of the mapped target node
     for sub_out, tgt_node in output_mapping.items():
         new_out_node = old_to_new[sub_out]
         # Replace the input of tgt_node with new_out_node
-        new_args = tuple(new_out_node if arg == tgt_node.args[0] else arg for arg in tgt_node.args)
+        new_args = tuple(new_out_node if arg == tgt_node.args[0] else arg for arg in tgt_node.args)  # TODO do we need to track arg indices? This is just replacing the first arg. But our current node compatibility check doesn't look at args at all, just tensor shapes... I'm confused.
         tgt_node.args = new_args
 
+    visualize_graph(target_graph, "model_graph_highlighted99", "graph_highlighted99.svg", highlight_nodes=new_node_names)
     target_graph.graph.lint()
     target_graph.recompile()
     return target_graph, new_node_names
+
+def _insert_node(target_graph: torch.fx.GraphModule, after_node: torch.fx.Node, node: torch.fx.Node, new_args, module_name_map):
+    def _insert_call(func):
+        print("inserting after", after_node)
+        target = module_name_map[node.target] if (node.op == "call_module" and node.target in module_name_map) else node.target
+        with target_graph.graph.inserting_after(after_node):
+            return func(target, args=new_args, kwargs=node.kwargs)
+    if node.op == "call_module":
+        return _insert_call(target_graph.graph.call_module)
+    elif node.op == "call_function":
+        return _insert_call(target_graph.graph.call_function)
+    elif node.op == "call_method":
+        return _insert_call(target_graph.graph.call_method)
+    else:
+        # For placeholder/output, skip (handled separately)
+        return
+
+def kanh_algo(subgraph_nodes: set[torch.fx.Node]) -> list[torch.fx.Node]:
+    # Build dependency graph (only within subgraph_nodes)
+    in_degree = {node: 0 for node in subgraph_nodes}
+    dependents = defaultdict(list)
+    for node in subgraph_nodes:
+        for input_node in node.all_input_nodes:
+            if input_node in subgraph_nodes:
+                in_degree[node] += 1
+                dependents[input_node].append(node)
+
+    # Initialize queue with nodes having in-degree 0
+    topo_queue = deque([node for node in subgraph_nodes if in_degree[node] == 0])
+    topo_order = []
+    while topo_queue:
+        node = topo_queue.popleft()
+        topo_order.append(node)
+        for dependent in dependents[node]:
+            in_degree[dependent] -= 1
+            if in_degree[dependent] == 0:
+                topo_queue.append(dependent)
+    return topo_order
 
 # TESTING STUFF BELOW
 if __name__ == "__main__":
@@ -276,14 +354,10 @@ if __name__ == "__main__":
                 print(f"Bias shape: {target_module.bias.shape}")
                 print(f"Bias stats: min={target_module.bias.min().item():.4f}, max={target_module.bias.max().item():.4f}, mean={target_module.bias.mean().item():.4f}")
 
-    input_candidates, output_candidates = find_potential_subgraph_connections(graph2, best_subgraph_nodes, best_input_boundary_nodes, best_output_boundary_nodes)
-    print(input_candidates)
-    print(output_candidates)
-    input_mapping = _select_random_mapping(best_input_boundary_nodes, input_candidates)
-    output_mapping = _select_random_mapping(best_output_boundary_nodes, output_candidates)
+    input_mapping, last_target_input_node, output_mapping = find_subgraph_connections(graph2, best_input_boundary_nodes, best_output_boundary_nodes)
     print(input_mapping)
     print(output_mapping)
 
-    graph2, new_node_names = insert_subgraph(graph2, best_subgraph_nodes, input_mapping, output_mapping)
+    graph2, new_node_names = insert_subgraph(graph2, best_subgraph_nodes, input_mapping, last_target_input_node, output_mapping)
 
     visualize_graph(graph2, "model_graph_highlighted", "graph_highlighted.svg", highlight_nodes=new_node_names)

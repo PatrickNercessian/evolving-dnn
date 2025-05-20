@@ -295,7 +295,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
         graph, unflatten_node = add_specific_node(
             graph, 
             adapted_node, 
-            nn.Unflatten(dim=1, sizes=target_size),
+            nn.Unflatten(dim=1, unflattened_size=target_size),
             target_user=target_user  # Final node
         )
 
