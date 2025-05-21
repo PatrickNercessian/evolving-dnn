@@ -192,7 +192,7 @@ def insert_subgraph(
         if node.op == "call_module":
             # Copy the module to the target graph
             module = node.graph.owning_module.get_submodule(node.target)
-            name = get_unique_name(target_graph_module, node.name)
+            name = get_unique_name(target_graph_module, node.target)
             target_graph_module.add_submodule(name, module)
             new_node_names.add(name)
             module_name_map[node.target] = name
@@ -207,6 +207,8 @@ def insert_subgraph(
     print("input_mapping", input_mapping)
     for i, node in enumerate(topo_order):
         print("inserting node", node)
+        if node.op == "call_module":
+            print("as", module_name_map[node.target])
         if node in input_mapping:  # Handle input boundary nodes
             target_inputs = input_mapping[node]
             new_node = _insert_node(target_graph_module, topo_target_input_nodes[-1], node, tuple(target_inputs), module_name_map)
