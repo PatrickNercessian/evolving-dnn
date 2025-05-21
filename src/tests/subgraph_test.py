@@ -168,7 +168,7 @@ def _get_all_before_nodes(target_graph: torch.fx.Graph, nodes_before: set[torch.
     return visited_nodes, visited_nodes_before
 
 def insert_subgraph(
-    target_graph: torch.fx.GraphModule,
+    target_graph_module: torch.fx.GraphModule,
     subgraph_nodes: set[torch.fx.Node],
     input_mapping: dict[torch.fx.Node, torch.fx.Node],
     topo_target_input_nodes: list[torch.fx.Node],  # TODO ideally we can just sort the input_mapping to be topographical instead of needing this list
@@ -192,8 +192,8 @@ def insert_subgraph(
         if node.op == "call_module":
             # Copy the module to the target graph
             module = node.graph.owning_module.get_submodule(node.target)
-            name = get_unique_name(target_graph, node.name)
-            target_graph.add_submodule(name, module)
+            name = get_unique_name(target_graph_module, node.name)
+            target_graph_module.add_submodule(name, module)
             new_node_names.add(name)
             module_name_map[node.target] = name
 
@@ -215,15 +215,15 @@ def insert_subgraph(
                 if idx > last_idx:
                     last_idx = idx
                     after_node = target_input
-            new_node = _insert_node(target_graph, after_node, node, tuple(target_inputs), module_name_map)
+            new_node = _insert_node(target_graph_module, after_node, node, tuple(target_inputs), module_name_map)
 
             # Adapt shape if needed
             for i, target_input in enumerate(target_inputs):
                 src_shape = node.args[i].meta["tensor_meta"].shape
                 tgt_shape = target_input.meta["tensor_meta"].shape
                 if src_shape != tgt_shape:
-                    target_graph, _ = adapt_node_shape(
-                        target_graph,
+                    target_graph_module, _ = adapt_node_shape(
+                        target_graph_module,
                         node=target_input,
                         current_size=tgt_shape,
                         target_size=src_shape,
@@ -233,7 +233,7 @@ def insert_subgraph(
             # Map args from old_to_new
             new_args = tuple(old_to_new[arg] if isinstance(arg, torch.fx.Node) else arg for arg in node.args)
             after_node = old_to_new[topo_order[i-1]] if i > 0 else topo_target_input_nodes[-1]
-            new_node = _insert_node(target_graph, after_node, node, new_args, module_name_map)
+            new_node = _insert_node(target_graph_module, after_node, node, new_args, module_name_map)
 
         if new_node:
             new_node_names.add(new_node.name)
@@ -250,10 +250,10 @@ def insert_subgraph(
     print("old_to_new", old_to_new)
     
 
-    visualize_graph(target_graph, "model_graph2_highlighted99", "graph2_highlighted99.svg", highlight_nodes=new_node_names)
-    target_graph.graph.lint()
-    target_graph.recompile()
-    return target_graph, new_node_names
+    visualize_graph(target_graph_module, "model_graph2_highlighted99", "graph2_highlighted99.svg", highlight_nodes=new_node_names)
+    target_graph_module.graph.lint()
+    target_graph_module.recompile()
+    return target_graph_module, new_node_names
 
 def _insert_node(target_graph: torch.fx.GraphModule, after_node: torch.fx.Node, node: torch.fx.Node, new_args, module_name_map):
     def _insert_call(func):
