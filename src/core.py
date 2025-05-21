@@ -31,6 +31,7 @@ def get_graph(model: nn.Module, input_shape: tuple|None = None, example_input: t
     if input_shape is not None and example_input is None:
         # Create example input
         example_input = torch.randn(input_shape)  # SHAPE NOTE: Using full shape including batch dimension
+        graph.example_input = example_input
         
     if example_input is not None:
         # Get the first node (should be placeholder/input)
