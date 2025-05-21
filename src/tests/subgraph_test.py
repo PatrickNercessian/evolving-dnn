@@ -209,29 +209,26 @@ def insert_subgraph(
         print("inserting node", node)
         if node in input_mapping:  # Handle input boundary nodes
             target_inputs = input_mapping[node]
-            # Adapt shape if needed
-            adapted_nodes = []
             last_idx = 0
+            for target_input in target_inputs:
+                idx = topo_target_input_nodes.index(target_input)
+                if idx > last_idx:
+                    last_idx = idx
+                    after_node = target_input
+            new_node = _insert_node(target_graph, after_node, node, tuple(target_inputs), module_name_map)
+
+            # Adapt shape if needed
             for i, target_input in enumerate(target_inputs):
                 src_shape = node.args[i].meta["tensor_meta"].shape
                 tgt_shape = target_input.meta["tensor_meta"].shape
-                adapted_node = target_input
                 if src_shape != tgt_shape:
-                    target_graph, adapted_node = adapt_node_shape(
+                    target_graph, _ = adapt_node_shape(
                         target_graph,
                         node=target_input,
                         current_size=tgt_shape,
                         target_size=src_shape,
                         target_user=node
                     )
-                idx = topo_target_input_nodes.index(target_input)
-                if idx >= last_idx:
-                    last_idx = idx
-                    after_node = adapted_node
-                adapted_nodes.append(adapted_node)
-            new_args = tuple(adapted_nodes)
-            print("adapted_nodes", adapted_nodes)
-            new_node = _insert_node(target_graph, after_node, node, new_args, module_name_map)
         else:
             # Map args from old_to_new
             new_args = tuple(old_to_new[arg] if isinstance(arg, torch.fx.Node) else arg for arg in node.args)
@@ -240,7 +237,6 @@ def insert_subgraph(
 
         if new_node:
             new_node_names.add(new_node.name)
-        print("new_args", new_args)
         old_to_new[node] = new_node
 
     # 4. For each output boundary node, replace the input of the mapped target node
