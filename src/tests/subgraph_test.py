@@ -210,10 +210,10 @@ def insert_subgraph(
         if node in input_mapping:  # Handle input boundary nodes
             target_inputs = input_mapping[node]
             # Adapt shape if needed
-            src_shape = node.meta["tensor_meta"].shape
             adapted_nodes = []
             last_idx = 0
-            for target_input in target_inputs:
+            for i, target_input in enumerate(target_inputs):
+                src_shape = node.args[i].meta["tensor_meta"].shape
                 tgt_shape = target_input.meta["tensor_meta"].shape
                 adapted_node = target_input
                 if src_shape != tgt_shape:
