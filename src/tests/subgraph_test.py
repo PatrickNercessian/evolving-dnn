@@ -155,8 +155,7 @@ def _select_random_mapping(
 
 def _get_all_before_nodes(target_graph: torch.fx.Graph, nodes_before: set[torch.fx.Node]):
     node_list = target_graph.nodes
-    visited_nodes = []
-    visited_nodes_before = []
+    visited_nodes, visited_nodes_before = [], []
     for node in node_list:
         visited_nodes.append(node)
         if node not in nodes_before:
@@ -172,7 +171,7 @@ def insert_subgraph(
     target_graph: torch.fx.GraphModule,
     subgraph_nodes: set[torch.fx.Node],
     input_mapping: dict[torch.fx.Node, torch.fx.Node],
-    topo_target_input_nodes: list[torch.fx.Node],
+    topo_target_input_nodes: list[torch.fx.Node],  # TODO ideally we can just sort the input_mapping to be topographical instead of needing this list
     output_mapping: dict[torch.fx.Node, torch.fx.Node],
 ):
     """
@@ -237,7 +236,7 @@ def insert_subgraph(
             # Map args from old_to_new
             new_args = tuple(old_to_new[arg] if isinstance(arg, torch.fx.Node) else arg for arg in node.args)
             after_node = old_to_new[topo_order[i-1]] if i > 0 else topo_target_input_nodes[-1]
-            new_node = _insert_node(target_graph, after_node=after_node, node=node, new_args=new_args, module_name_map=module_name_map)
+            new_node = _insert_node(target_graph, after_node, node, new_args, module_name_map)
 
         if new_node:
             new_node_names.add(new_node.name)
