@@ -209,17 +209,14 @@ def insert_subgraph(
         print("inserting node", node)
         if node in input_mapping:  # Handle input boundary nodes
             target_inputs = input_mapping[node]
-            last_idx = 0
-            for target_input in target_inputs:
-                idx = topo_target_input_nodes.index(target_input)
-                if idx > last_idx:
-                    last_idx = idx
-                    after_node = target_input
-            new_node = _insert_node(target_graph_module, after_node, node, tuple(target_inputs), module_name_map)
+            new_node = _insert_node(target_graph_module, topo_target_input_nodes[-1], node, tuple(target_inputs), module_name_map)
 
             # Adapt shape if needed
-            for i, target_input in enumerate(target_inputs):
-                src_shape = node.args[i].meta["tensor_meta"].shape
+            for j, target_input in enumerate(target_inputs):
+                try:
+                    src_shape = node.args[j].meta["tensor_meta"].shape
+                except:
+                    continue
                 tgt_shape = target_input.meta["tensor_meta"].shape
                 if src_shape != tgt_shape:
                     target_graph_module, _ = adapt_node_shape(
