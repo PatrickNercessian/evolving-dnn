@@ -52,21 +52,35 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     # Find boundary nodes that are within the subgraph
     input_mapping, output_mapping = {}, {}
     for node in subgraph_nodes:
-        is_boundary = True
+        is_boundary = False
         input_mapping[node], output_mapping[node] = [], []
         for arg in node.args:
             if isinstance(arg, torch.fx.Node):
-                input_mapping[node].append(arg if arg in subgraph_nodes else None)
+                if arg in subgraph_nodes:
+                    input_mapping[node].append(arg)
+                elif _node_has_shape(arg):
+                    input_mapping[node].append(None)  # placeholder for target graph replacement arg
+                else:
+                    raise ValueError(f"WARNING: boundary node {node} NEIGHBOR arg {arg} has no shape, killing subgraph")
             else:
                 input_mapping[node].append(arg)
         if not any(arg is None for arg in input_mapping[node]):
             del input_mapping[node]  # if all node inputs are in the subgraph, we don't need to keep the mapping
-            is_boundary = False
+        else:
+            is_boundary = True
+        
+        
         for user_node in node.users:
-            output_mapping[node].append(user_node if user_node in subgraph_nodes else None)
+            if user_node in subgraph_nodes:
+                output_mapping[node].append(user_node)
+            elif _node_has_shape(user_node):
+                output_mapping[node].append(None)  # placeholder for target graph replacement user
+            else:
+                raise ValueError(f"WARNING: boundary node {node} NEIGHBOR user_node {user_node} has no shape, killing subgraph")
         if all(user_node is not None for user_node in output_mapping[node]):
             del output_mapping[node]  # if all node outputs are in the subgraph, we don't need to keep the mapping
-            is_boundary = False
+        else:
+            is_boundary = True
 
         if is_boundary and not _node_has_shape(node):
             raise ValueError("WARNING: boundary node with no shape, killing subgraph", node)
@@ -354,7 +368,12 @@ if __name__ == "__main__":
     model2 = GPT(config)
     graph2 = get_graph(model2, example_input=example_input)
 
-    # print(graph.graph)
+    # import copy
+    # import time
+    # a = time.time()
+    # graph1_copy = copy.deepcopy(graph1)
+    # graph2_copy = copy.deepcopy(graph2)
+    # print("time taken to copy", time.time() - a)
 
     visualize_graph(graph1, "model_graph", "graph.svg")
 
@@ -362,7 +381,12 @@ if __name__ == "__main__":
     # lowest_ratio_of_boundary_to_nodes = float('inf')
     lowest_num_boundary_nodes = float('inf')
     broken_subgraphs = 0
+    import time
     for i in range(100):
+        x = time.time()
+        graph1_str = str(graph1.graph)
+        graph2_str = str(graph2.graph)
+        assert graph1_str == graph2_str
         try:
             num_nodes = random.randint(MIN_NODES, MAX_NODES)
             subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(graph1, num_nodes)
@@ -374,16 +398,26 @@ if __name__ == "__main__":
                 input_mapping, topo_target_input_nodes, output_mapping = find_subgraph_connections(graph2, input_boundary_nodes, output_boundary_nodes)
                 lowest_num_boundary_nodes = num_boundary_nodes
 
-                # Extract node names for highlighting
-                subgraph_node_names = {node.name for node in subgraph_nodes}
-
-                # Visualize the graph with the subgraph highlighted
-                visualize_graph(graph1, "model_graph_highlighted", "graph_highlighted.svg", highlight_nodes=subgraph_node_names)
-
-                graph2, new_node_names = insert_subgraph(graph2, subgraph_nodes, input_mapping, topo_target_input_nodes, output_mapping)
-
-                visualize_graph(graph2, "model_graph2_highlighted", "graph2_highlighted.svg", highlight_nodes=new_node_names)
+                insert_subgraph_kwargs = {
+                    "subgraph_nodes": subgraph_nodes,
+                    "input_mapping": input_mapping,
+                    "topo_target_input_nodes": topo_target_input_nodes,
+                    "output_mapping": output_mapping
+                }
+            print("time taken", time.time() - x)
         except ValueError as e:
             print("WARNING: error finding subgraph", e)
+            print("time taken for error", time.time() - x)
             broken_subgraphs += 1
     print("broken_subgraphs", broken_subgraphs)
+
+
+# Extract node names for highlighting
+subgraph_node_names = {node.name for node in insert_subgraph_kwargs["subgraph_nodes"]}
+
+# Visualize the graph with the subgraph highlighted
+visualize_graph(graph1, "model_graph_highlighted", "graph_highlighted.svg", highlight_nodes=subgraph_node_names)
+
+graph2, new_node_names = insert_subgraph(graph2, **insert_subgraph_kwargs)
+
+visualize_graph(graph2, "model_graph2_highlighted", "graph2_highlighted.svg", highlight_nodes=new_node_names)
