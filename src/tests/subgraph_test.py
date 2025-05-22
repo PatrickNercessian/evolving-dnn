@@ -68,7 +68,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
                     input_mapping[node].append(arg)  # because now it's in the subgraph
             else:
                 input_mapping[node].append(arg)
-        if not any(arg is None for arg in input_mapping[node]):
+        if all(arg is not None for arg in input_mapping[node]):
             del input_mapping[node]  # if all node inputs are in the subgraph, we don't need to keep the mapping
         
         
