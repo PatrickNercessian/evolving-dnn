@@ -373,7 +373,7 @@ if __name__ == "__main__":
     config.is_proxy_for_fx = True
 
     model1 = GPT(config)
-    example_input = torch.randint(0, config.vocab_size, (1, 1024))
+    example_input = torch.randint(0, config.vocab_size, (1, config.block_size))
     print("example_input", example_input)
     graph1 = get_graph(model1, example_input=example_input)
     model2 = GPT(config)

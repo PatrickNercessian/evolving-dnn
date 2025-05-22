@@ -38,7 +38,7 @@ def get_graph(model: nn.Module, input_shape: tuple|None = None, example_input: t
         placeholder = next(iter(graph.graph.nodes))
         placeholder.meta['tensor_meta'] = {
             'dtype': example_input.dtype,
-            'shape': input_shape,  # SHAPE NOTE: Storing full shape including batch dimension
+            'shape': example_input.shape,  # SHAPE NOTE: Storing full shape including batch dimension
             'requires_grad': example_input.requires_grad
         }
         

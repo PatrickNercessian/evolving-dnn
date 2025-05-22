@@ -243,12 +243,12 @@ class GPT(nn.Module):
         logits = self.lm_head(x)
 
         # if we are given some desired targets also calculate the loss
-        # loss = None
-        # if targets is not None:
-        #     print("targets", targets)
-        #     loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+        loss = None
+        if targets is not None and not isinstance(targets, torch.fx.Proxy):
+            print("targets", targets)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
 
-        return logits
+        return logits, loss
 
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k=None):
