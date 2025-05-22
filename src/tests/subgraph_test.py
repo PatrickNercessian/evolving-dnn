@@ -51,8 +51,11 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
 
     # Find boundary nodes that are within the subgraph
     input_mapping, output_mapping = {}, {}
-    for node in subgraph_nodes:
-        is_boundary = False
+    subgraph_nodes_list = list(subgraph_nodes)
+    def _add_to_subgraph(node):
+        subgraph_nodes.add(node)
+        subgraph_nodes_list.append(node)
+    for node in subgraph_nodes_list:
         input_mapping[node], output_mapping[node] = [], []
         for arg in node.args:
             if isinstance(arg, torch.fx.Node):
@@ -60,14 +63,13 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
                     input_mapping[node].append(arg)
                 elif _node_has_shape(arg):
                     input_mapping[node].append(None)  # placeholder for target graph replacement arg
-                else:
-                    raise ValueError(f"WARNING: boundary node {node} NEIGHBOR arg {arg} has no shape, killing subgraph")
+                else:  # if neighbor node and has no shape, add it to the subgraph
+                    _add_to_subgraph(arg)
+                    input_mapping[node].append(arg)  # because now it's in the subgraph
             else:
                 input_mapping[node].append(arg)
         if not any(arg is None for arg in input_mapping[node]):
             del input_mapping[node]  # if all node inputs are in the subgraph, we don't need to keep the mapping
-        else:
-            is_boundary = True
         
         
         for user_node in node.users:
@@ -75,18 +77,22 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
                 output_mapping[node].append(user_node)
             elif _node_has_shape(user_node):
                 output_mapping[node].append(None)  # placeholder for target graph replacement user
-            else:
-                raise ValueError(f"WARNING: boundary node {node} NEIGHBOR user_node {user_node} has no shape, killing subgraph")
+            else:  # if neighbor node and has no shape, add it to the subgraph
+                _add_to_subgraph(user_node)
+                output_mapping[node].append(user_node)  # because now it's in the subgraph
         if all(user_node is not None for user_node in output_mapping[node]):
             del output_mapping[node]  # if all node outputs are in the subgraph, we don't need to keep the mapping
-        else:
-            is_boundary = True
 
-        if is_boundary and not _node_has_shape(node):
-            raise ValueError("WARNING: boundary node with no shape, killing subgraph", node)
+        if (node in input_mapping or node in output_mapping) and not _node_has_shape(node):
+            if node in input_mapping:
+                del input_mapping[node]
+                for arg in node.all_input_nodes:
+                    _add_to_subgraph(arg)
+            else:
+                del output_mapping[node]
+                for user_node in node.users:
+                    _add_to_subgraph(user_node)
 
-    print("input_mapping before", input_mapping)
-    print("output_mapping before", output_mapping)
     return subgraph_nodes, input_mapping, output_mapping
 
 def _is_allowed_subgraph_node_type(node: torch.fx.Node):
@@ -280,12 +286,17 @@ def insert_subgraph(
         for user in users:
             new_out_node = old_to_new[sub_out]
             # Replace the input of user with new_out_node
-            # TODO should we do a random arg index here?
-            tensor_meta = user.args[0].meta["tensor_meta"]
+            # TODO should we do a random selection instead of the first one with a shape?
+            for i, arg in enumerate(user.args):
+                if hasattr(arg, "meta") and "tensor_meta" in arg.meta:
+                    break
+            else:
+                raise ValueError("no tensor_meta found for any args of user", user)
+            tensor_meta = user.args[i].meta["tensor_meta"]
             try:
                 first_arg_shape = tensor_meta.shape
             except:
-                first_arg_shape = tensor_meta[0].shape  # Note: split nodes have a tuple of shapes. Maybe this is hacky?
+                first_arg_shape = tensor_meta[i].shape  # Note: split nodes have a tuple of shapes. Maybe this is hacky?
             new_args = tuple([new_out_node, *user.args[1:]])  # TODO do we need to track arg indices? This is just replacing the first arg. But our current node compatibility check doesn't look at args at all, just tensor shapes... I'm confused.
             user.args = new_args
 
@@ -368,22 +379,13 @@ if __name__ == "__main__":
     model2 = GPT(config)
     graph2 = get_graph(model2, example_input=example_input)
 
-    # import copy
-    # import time
-    # a = time.time()
-    # graph1_copy = copy.deepcopy(graph1)
-    # graph2_copy = copy.deepcopy(graph2)
-    # print("time taken to copy", time.time() - a)
-
     visualize_graph(graph1, "model_graph", "graph.svg")
 
     subgraph_nodes = set()
     # lowest_ratio_of_boundary_to_nodes = float('inf')
     lowest_num_boundary_nodes = float('inf')
     broken_subgraphs = 0
-    import time
     for i in range(100):
-        x = time.time()
         graph1_str = str(graph1.graph)
         graph2_str = str(graph2.graph)
         assert graph1_str == graph2_str
@@ -404,10 +406,8 @@ if __name__ == "__main__":
                     "topo_target_input_nodes": topo_target_input_nodes,
                     "output_mapping": output_mapping
                 }
-            print("time taken", time.time() - x)
         except ValueError as e:
             print("WARNING: error finding subgraph", e)
-            print("time taken for error", time.time() - x)
             broken_subgraphs += 1
     print("broken_subgraphs", broken_subgraphs)
 
