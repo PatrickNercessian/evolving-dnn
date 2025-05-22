@@ -35,7 +35,8 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
         anchor_node = random.choice(all_nodes)
     subgraph_nodes = {anchor_node}
     frontier_nodes = [anchor_node]
-    while frontier_nodes and len(subgraph_nodes) < num_nodes:
+    should_continue_past_num_nodes = False
+    while frontier_nodes and (len(subgraph_nodes) < num_nodes or should_continue_past_num_nodes):
         current_node = frontier_nodes.pop()
         candidate_nodes = set()
         for neighbor_node in (*current_node.all_input_nodes, *current_node.users):
@@ -51,6 +52,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     # Find boundary nodes that are within the subgraph
     input_mapping, output_mapping = {}, {}
     for node in subgraph_nodes:
+        is_boundary = True
         input_mapping[node], output_mapping[node] = [], []
         for arg in node.args:
             if isinstance(arg, torch.fx.Node):
@@ -59,16 +61,25 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
                 input_mapping[node].append(arg)
         if not any(arg is None for arg in input_mapping[node]):
             del input_mapping[node]  # if all node inputs are in the subgraph, we don't need to keep the mapping
+            is_boundary = False
         for user_node in node.users:
             output_mapping[node].append(user_node if user_node in subgraph_nodes else None)
         if all(user_node is not None for user_node in output_mapping[node]):
             del output_mapping[node]  # if all node outputs are in the subgraph, we don't need to keep the mapping
-    
-    print("input_mapping", input_mapping)
+            is_boundary = False
+
+        if is_boundary and not _node_has_shape(node):
+            raise ValueError("WARNING: boundary node with no shape, killing subgraph", node)
+
+    print("input_mapping before", input_mapping)
+    print("output_mapping before", output_mapping)
     return subgraph_nodes, input_mapping, output_mapping
 
 def _is_allowed_subgraph_node_type(node: torch.fx.Node):
     return node.op != "placeholder" and node.op != "output" and not "cross_entropy" in node.name and not "targets" in node.name
+
+def _node_has_shape(node: torch.fx.Node):
+    return "tensor_meta" in node.meta and hasattr(node.meta["tensor_meta"], "shape")
 
 def find_subgraph_connections(
     target_graph_module: torch.fx.GraphModule,
@@ -91,36 +102,21 @@ def find_subgraph_connections(
     """
     target_graph_nodes = list(target_graph_module.graph.nodes)
     
-    def are_shapes_adaptable(shape1, shape2):
-        # Both shapes should have same number of dimensions
-        if len(shape1) != len(shape2):
-            return False
-        # Only batch dimension (first dim) needs to match
-        if shape1[0] != shape2[0]:
-            return False
-        return True
-    
     def are_nodes_compatible(node1, node2):
-        return True  # TODO do we need any check at all?
         # Skip placeholder and output nodes
         if node1.op in ["placeholder", "output"] or node2.op in ["placeholder", "output"]:
             return False
             
         # Check tensor metadata
-        if "tensor_meta" not in node1.meta or "tensor_meta" not in node2.meta:
+        if not _node_has_shape(node1) or not _node_has_shape(node2):
             return False
         
-        if hasattr(node1.meta["tensor_meta"], "dtype") and hasattr(node2.meta["tensor_meta"], "dtype"):
-            if node1.meta["tensor_meta"].dtype != node2.meta["tensor_meta"].dtype:
-                return False
-        
-            # TODO why did I comment this out, I forgot? Do we want it?
-            # if not hasattr(node1.meta["tensor_meta"], "shape") or not hasattr(node2.meta["tensor_meta"], "shape"):
-            #     return False
+        if node1.meta["tensor_meta"].dtype != node2.meta["tensor_meta"].dtype:
+            return False
 
-            # Check if shapes can be adapted
-            if not are_shapes_adaptable(node1.meta["tensor_meta"].shape, node2.meta["tensor_meta"].shape):
-                return False
+        # Ensure batch dimension matches
+        if node1.meta["tensor_meta"].shape[0] != node2.meta["tensor_meta"].shape[0]:
+            return False
             
         return True
 
@@ -174,7 +170,7 @@ def _select_random_mapping(
                 used_candidates.add(selected)
                 boundary_nodes[node][i] = selected
             else:
-                print("WARNING: no candidates found for node, all candidates might be topologically bad", node)
+                print("WARNING: no candidates found for node", node)
                 raise ValueError("no candidates found for node", node)
 
     return boundary_nodes, visited_nodes_before
@@ -231,6 +227,7 @@ def insert_subgraph(
 
     print("topo_order", topo_order)
     print("input_mapping", input_mapping)
+    print("output_mapping", output_mapping)
     for i, node in enumerate(topo_order):
         print("inserting node", node)
         after_node = old_to_new[topo_order[i-1]] if i > 0 else topo_target_input_nodes[-1]
@@ -238,31 +235,24 @@ def insert_subgraph(
             print("as", module_name_map[node.target])
         if node in input_mapping:  # Handle input boundary nodes
             target_inputs = []
-            for i in range(len(input_mapping[node])):
-                if input_mapping[node][i] in subgraph_nodes and isinstance(input_mapping[node][i], torch.fx.Node):
-                    target_inputs.append(old_to_new[input_mapping[node][i]])
+            for j in range(len(input_mapping[node])):
+                if input_mapping[node][j] in subgraph_nodes and isinstance(input_mapping[node][j], torch.fx.Node):
+                    target_inputs.append(old_to_new[input_mapping[node][j]])
                 else:
-                    target_inputs.append(input_mapping[node][i])
+                    target_inputs.append(input_mapping[node][j])  # these are already in the target graph
 
             new_node = _insert_node(target_graph_module, after_node=after_node, node=node, new_args=tuple(target_inputs), module_name_map=module_name_map)
 
             # Adapt shape if needed
             for j, target_input in enumerate(target_inputs):
-                try:
-                    src_shape = node.args[j].meta["tensor_meta"].shape
-                    tgt_shape = target_input.meta["tensor_meta"].shape
-                except:
-                    continue
-                if src_shape != tgt_shape:
-                    target_graph_module, _ = adapt_node_shape(
-                        target_graph_module,
-                        node=target_input,
-                        current_size=tgt_shape,
-                        target_size=src_shape,
-                        target_user=node
-                    )
+                target_graph_module, _ = adapt_node_shape(
+                    target_graph_module,
+                    node=target_input,
+                    current_size=target_input.meta["tensor_meta"].shape,
+                    target_size=node.args[j].meta["tensor_meta"].shape,
+                    target_user=new_node
+                )
         else:
-            # Map args from old_to_new
             new_args = tuple(old_to_new[arg] if isinstance(arg, torch.fx.Node) else arg for arg in node.args)
             new_node = _insert_node(target_graph_module, after_node, node, new_args, module_name_map)
 
@@ -272,13 +262,26 @@ def insert_subgraph(
 
     # 4. For each output boundary node, replace the input of the mapped target node
     for sub_out, users in output_mapping.items():
+        print("sub_out", sub_out)
         for user in users:
-            user = old_to_new[user] if user in subgraph_nodes else user
             new_out_node = old_to_new[sub_out]
-            # TODO don't we need to do adapt_node_shape here?
-            # Replace the input of tgt_node with new_out_node
-            new_args = tuple(new_out_node if arg == user.args[0] else arg for arg in user.args)  # TODO do we need to track arg indices? This is just replacing the first arg. But our current node compatibility check doesn't look at args at all, just tensor shapes... I'm confused.
+            # Replace the input of user with new_out_node
+            # TODO should we do a random arg index here?
+            tensor_meta = user.args[0].meta["tensor_meta"]
+            try:
+                first_arg_shape = tensor_meta.shape
+            except:
+                first_arg_shape = tensor_meta[0].shape  # Note: split nodes have a tuple of shapes. Maybe this is hacky?
+            new_args = tuple([new_out_node, *user.args[1:]])  # TODO do we need to track arg indices? This is just replacing the first arg. But our current node compatibility check doesn't look at args at all, just tensor shapes... I'm confused.
             user.args = new_args
+
+            target_graph_module, _ = adapt_node_shape(
+                target_graph_module,
+                node=new_out_node,
+                current_size=sub_out.meta["tensor_meta"].shape,
+                target_size=first_arg_shape,
+                target_user=user
+            )
 
     print("old_to_new", old_to_new)
     
@@ -358,34 +361,29 @@ if __name__ == "__main__":
     subgraph_nodes = set()
     # lowest_ratio_of_boundary_to_nodes = float('inf')
     lowest_num_boundary_nodes = float('inf')
-    for i in range(20):
-        num_nodes = random.randint(MIN_NODES, MAX_NODES)
-        subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(graph1, num_nodes)
-        # ratio_of_boundary_to_nodes = len(boundary_nodes) / len(candidate_nodes)
-        # if len(boundary_nodes) <= MAX_BOUNDARY_NODES and ratio_of_boundary_to_nodes < lowest_ratio_of_boundary_to_nodes:
-        #     lowest_ratio_of_boundary_to_nodes = ratio_of_boundary_to_nodes
-        num_boundary_nodes = len(input_boundary_nodes) + len(output_boundary_nodes)
-        if num_boundary_nodes <= MAX_BOUNDARY_NODES and len(subgraph_nodes) > MIN_NODES and num_boundary_nodes < lowest_num_boundary_nodes:
-            print("testing", num_boundary_nodes, len(subgraph_nodes))
-            try:
+    broken_subgraphs = 0
+    for i in range(100):
+        try:
+            num_nodes = random.randint(MIN_NODES, MAX_NODES)
+            subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(graph1, num_nodes)
+            # ratio_of_boundary_to_nodes = len(boundary_nodes) / len(candidate_nodes)
+            # if len(boundary_nodes) <= MAX_BOUNDARY_NODES and ratio_of_boundary_to_nodes < lowest_ratio_of_boundary_to_nodes:
+            #     lowest_ratio_of_boundary_to_nodes = ratio_of_boundary_to_nodes
+            num_boundary_nodes = len(input_boundary_nodes) + len(output_boundary_nodes)
+            if num_boundary_nodes <= MAX_BOUNDARY_NODES and len(subgraph_nodes) > MIN_NODES and num_boundary_nodes < lowest_num_boundary_nodes:
                 input_mapping, topo_target_input_nodes, output_mapping = find_subgraph_connections(graph2, input_boundary_nodes, output_boundary_nodes)
-            except ValueError as e:
-                print("WARNING: error finding subgraph connections", e)
-                continue
-            lowest_num_boundary_nodes = num_boundary_nodes
-            best_subgraph_nodes = subgraph_nodes
-            insert_subgraph_kwargs = {
-                "input_mapping": input_mapping,
-                "topo_target_input_nodes": topo_target_input_nodes,
-                "output_mapping": output_mapping
-            }
+                lowest_num_boundary_nodes = num_boundary_nodes
 
-    # Extract node names for highlighting
-    subgraph_node_names = {node.name for node in best_subgraph_nodes}
+                # Extract node names for highlighting
+                subgraph_node_names = {node.name for node in subgraph_nodes}
 
-    # Visualize the graph with the subgraph highlighted
-    visualize_graph(graph1, "model_graph_highlighted", "graph_highlighted.svg", highlight_nodes=subgraph_node_names)
+                # Visualize the graph with the subgraph highlighted
+                visualize_graph(graph1, "model_graph_highlighted", "graph_highlighted.svg", highlight_nodes=subgraph_node_names)
 
-    graph2, new_node_names = insert_subgraph(graph2, best_subgraph_nodes, **insert_subgraph_kwargs)
+                graph2, new_node_names = insert_subgraph(graph2, subgraph_nodes, input_mapping, topo_target_input_nodes, output_mapping)
 
-    visualize_graph(graph2, "model_graph2_highlighted", "graph2_highlighted.svg", highlight_nodes=new_node_names)
+                visualize_graph(graph2, "model_graph2_highlighted", "graph2_highlighted.svg", highlight_nodes=new_node_names)
+        except ValueError as e:
+            print("WARNING: error finding subgraph", e)
+            broken_subgraphs += 1
+    print("broken_subgraphs", broken_subgraphs)
