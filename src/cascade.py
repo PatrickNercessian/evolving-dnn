@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 from typing import Dict, List, Set, Tuple, Optional, Any, Union
-
-from utils import remove_node_from_graph, adapt_node_shape
+from core import get_graph, add_node  # remove remove_node import from core
+from utils import adapt_node_shape, remove_node_flexible  # import the new flexible remover
+import inspect
 
 
 class Cascade:
@@ -12,14 +13,16 @@ class Cascade:
     added, modified, or removed.
     """
     
-    def __init__(self, graph: torch.fx.GraphModule):
+    def __init__(self, graph: torch.fx.GraphModule, use_reshape: bool = False):
         """
         Initialize with a graph.
         
         Args:
             graph: The FX graph module to work with
+            use_reshape: If True, repair by reshaping nodes; else, use adapters.
         """
         self.graph = graph
+        self.use_reshape = use_reshape
     
     def adapt_dimensions(self, 
                         node: torch.fx.Node, 
@@ -88,78 +91,63 @@ class Cascade:
         return self.graph
     
     def _cascade_forward(self, node, node_shape, visited):
-        """Recursively check and adjust dimensions for children nodes"""
         from utils import add_specific_node
-        
-        # Get all children (users) of the current node
+
         children = list(node.users)
-        
-        # Process each child node
         for child in children:
             if child in visited:
                 continue
-            
-            # Check if we need to adjust child's input to match parent's output
+
+            child_mod = getattr(self.graph, child.target, None)
+            if is_shapeless_module(child_mod):
+                # Continue BFS to the next level
+                self.graph = self._cascade_forward(child, node_shape, visited)
+                continue
+
             child_input_dim = self._get_input_dim_from_parent(child, node)
             if child_input_dim is not None and child_input_dim != node_shape[1]:
                 print(f"Child input {child_input_dim} doesn't match parent output {node_shape[1]}")
-                
-                # Add appropriate adapter
-                if node_shape[1] > child_input_dim:
-                    # Need to reduce dimension with pooling
-                    self.graph, adapter = add_specific_node(self.graph, node, nn.AdaptiveAvgPool1d(child_input_dim))
-                    self._replace_parent_in_child(child, node, adapter)
+                if self.use_reshape:
+                    # Only change the input size of the child to match parent's output
+                    self.graph = reshape_node(self.graph, child, new_in_features=node_shape[1])
                 else:
-                    # Need to expand dimension with padding
-                    self.graph, adapter = add_specific_node(self.graph, node, 
-                                                      nn.CircularPad1d((0, child_input_dim - node_shape[1])))
-                    self._replace_parent_in_child(child, node, adapter)
-                
-                # Get the updated shape of the child 
+                    # Use adapter as before
+                    if node_shape[1] > child_input_dim:
+                        self.graph, adapter = add_specific_node(self.graph, node, nn.AdaptiveAvgPool1d(child_input_dim))
+                        self._replace_parent_in_child(child, node, adapter)
+                    else:
+                        self.graph, adapter = add_specific_node(self.graph, node, nn.CircularPad1d((0, child_input_dim - node_shape[1])))
+                        self._replace_parent_in_child(child, node, adapter)
                 child_shape = self._get_node_shape(child)
-                
-                # Continue cascade from this child
                 self.graph = self._cascade_dimension_changes(child, child_shape, visited=visited)
-        
         return self.graph
-    
+
     def _cascade_backward(self, node, node_shape, visited):
-        """Recursively check and adjust dimensions for parent nodes"""
         from utils import add_specific_node
-        
-        # Get all parents (args that are nodes) of the current node
+
         if not hasattr(node, 'args'):
             return self.graph
-            
+
         parents = [arg for arg in node.args if isinstance(arg, torch.fx.Node)]
-        
-        # Process each parent node independently
         for parent in parents:
             if parent in visited:
                 continue
-            
-            # Check if parent's output matches this node's input requirements
+
             parent_output_dim = self._get_output_dim(parent)
             if parent_output_dim is not None and parent_output_dim != node_shape[0]:
                 print(f"Parent output {parent_output_dim} doesn't match child input {node_shape[0]}")
-                
-                # Add appropriate adapter
-                if parent_output_dim > node_shape[0]:
-                    # Need to reduce dimension with pooling
-                    self.graph, adapter = add_specific_node(self.graph, parent, nn.AdaptiveAvgPool1d(node_shape[0]))
-                    self._replace_parent_in_child(node, parent, adapter)
+                if self.use_reshape:
+                    # Only change the output size of the parent to match child's input
+                    self.graph = reshape_node(self.graph, parent, new_out_features=node_shape[0])
                 else:
-                    # Need to expand dimension with padding
-                    self.graph, adapter = add_specific_node(self.graph, parent,
-                                                     nn.CircularPad1d((0, node_shape[0] - parent_output_dim)))
-                    self._replace_parent_in_child(node, parent, adapter)
-                
-                # Get the updated shape of the parent
+                    if parent_output_dim > node_shape[0]:
+                        self.graph, adapter = add_specific_node(self.graph, parent, nn.AdaptiveAvgPool1d(node_shape[0]))
+                        self._replace_parent_in_child(node, parent, adapter)
+                    else:
+                        self.graph, adapter = add_specific_node(self.graph, parent, nn.CircularPad1d((0, node_shape[0] - parent_output_dim)))
+                        self._replace_parent_in_child(node, parent, adapter)
                 parent_shape = self._get_node_shape(parent)
-                
-                # Continue cascade from this parent
                 self.graph = self._cascade_dimension_changes(parent, parent_shape, visited=visited)
-        
         return self.graph
 
     # Helper methods for dimension analysis and node manipulation
@@ -209,12 +197,31 @@ class Cascade:
                 break
 
 
+def is_shapeless_module(mod):
+    """
+    Dynamically determines if a module is 'shapeless' (does not require shape args).
+    Returns True if the module's __init__ does NOT have any typical shape arguments.
+    """
+    if mod is None:
+        return True  # Defensive: treat unknown as shapeless
+
+    # Common shape-related argument names
+    shape_args = {'in_features', 'out_features', 'in_channels', 'out_channels', 'num_features', 'num_channels', 'features'}
+    try:
+        sig = inspect.signature(mod.__init__)
+        param_names = set(sig.parameters.keys())
+        param_names.discard('self')
+        return len(shape_args & param_names) == 0
+    except Exception:
+        return True
+
+
 def reshape_node(
     graph: torch.fx.GraphModule, 
     target_node: torch.fx.Node, 
     new_in_features: Optional[int] = None, 
     new_out_features: Optional[int] = None
-) -> torch.fx.Node:
+) -> torch.fx.GraphModule:  # <-- Change return type
     """
     Atomically replaces a node with a new node of the same type but new dimensions.
     All parent and child connections are redirected to the new node, and the old node is removed.
@@ -263,9 +270,8 @@ def reshape_node(
         user.replace_input_with(target_node, new_node)
     
     # 6. Remove the old node from the graph
-    remove_node_from_graph(graph, target_node)
+    remove_node_flexible(graph, target_node)  # use the flexible remover
     
     # 7. Recompile the graph
     graph.recompile()
-    
-    return new_node
+    return graph  # <-- Return the graph, not new_node

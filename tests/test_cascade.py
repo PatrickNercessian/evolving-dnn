@@ -64,7 +64,10 @@ class TestCascade(unittest.TestCase):
         self.assertIsNotNone(fc1_node, "Couldn't find fc1 module")
         
         # Create a cascade instance
-        cascader = Cascade(graph)
+        # To use reshaping for repairs:
+        cascader = Cascade(graph, use_reshape=True)
+        # To use adapters for repairs:
+        # cascader = Cascade(graph, use_reshape=False)
         
         # Use a shape that would normally require adaptation
         new_hidden_size = 15  # Different from original 20
@@ -75,9 +78,6 @@ class TestCascade(unittest.TestCase):
                 node=fc1_node,
                 node_shape=(input_size, new_hidden_size)
             )
-            
-            # Force recompilation to update shapes
-            graph.recompile()
             
             # Run the model with the same input
             new_output = graph(sample_input)

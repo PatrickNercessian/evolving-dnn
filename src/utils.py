@@ -390,3 +390,39 @@ def get_feature_dims(shape):
         return tuple(shape[1:])
     else:
         return tuple(shape)
+
+def remove_node_flexible(graph, node):
+    """
+    Removes a node from a torch.fx.GraphModule, updating all references.
+    This version is more flexible than the core version: it allows removal of any node,
+    as long as all its users have been redirected and it is not referenced elsewhere.
+    It will:
+      - Remove all users' references to this node
+      - Remove the node from the graph
+      - Remove the module from the graph's _modules if it is not used elsewhere
+      - Recompile the graph
+
+    Args:
+        graph: The FX GraphModule.
+        node: The node to remove.
+    """
+    # Remove all users' references to this node
+    for user in list(node.users):
+        user.args = tuple(arg for arg in user.args if arg is not node)
+
+    # Remove the node from the graph
+    graph.graph.erase_node(node)
+
+    # Remove the module from the graph's _modules if it exists and is not used elsewhere
+    if hasattr(node, 'target'):
+        mod_name = node.target
+        # Only remove if no other node uses this module
+        still_used = any(
+            n is not node and getattr(n, 'target', None) == mod_name
+            for n in graph.graph.nodes
+        )
+        if not still_used and hasattr(graph, '_modules') and mod_name in graph._modules:
+            del graph._modules[mod_name]
+
+    # Recompile the graph to update internals
+    graph.recompile()
