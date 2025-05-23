@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 from typing import Dict, List, Set, Tuple, Optional, Any, Union
-from core import get_graph, add_node  # remove remove_node import from core
-from utils import adapt_node_shape, remove_node_flexible  # import the new flexible remover
+from core import get_graph, add_node
+from utils import adapt_node_shape, remove_node_flexible
+from torch.fx.passes.shape_prop import ShapeProp
 import inspect
 
 
@@ -13,7 +14,7 @@ class Cascade:
     added, modified, or removed.
     """
     
-    def __init__(self, graph: torch.fx.GraphModule, use_reshape: bool = False):
+    def __init__(self, graph: torch.fx.GraphModule, use_reshape: bool = True):
         """
         Initialize with a graph.
         
@@ -23,6 +24,7 @@ class Cascade:
         """
         self.graph = graph
         self.use_reshape = use_reshape
+        self.graph_input_shape = None
     
     def adapt_dimensions(self, 
                         node: torch.fx.Node, 
@@ -41,6 +43,8 @@ class Cascade:
         Returns:
             The modified graph
         """
+        # Store input shape for future use
+        self.graph_input_shape = input_shape
         visited = set()
         self.graph = self._cascade_dimension_changes(
             node=node,
@@ -49,6 +53,12 @@ class Cascade:
             output_shape=output_shape,
             visited=visited
         )
+        # After all cascading, update meta info
+        if input_shape is not None:
+            try:
+                ShapeProp(self.graph).propagate(torch.zeros(*input_shape))
+            except Exception as e:
+                print(f"Warning: Shape propagation failed: {e}")
         return self.graph
     
     def _cascade_dimension_changes(self,
@@ -88,7 +98,78 @@ class Cascade:
         if len(visited) <= 1:
             self.graph.recompile()
         
+        # After forward/backward, update meta info if at root
+        if len(visited) <= 1 and input_shape is not None:
+            ShapeProp(self.graph).propagate(torch.zeros(*input_shape))
         return self.graph
+    
+    def _get_node_shape(self, node):
+        """Get (input_dim, output_dim) tuple for a node"""
+        input_dim = None
+        # Try to get input dim from module first
+        if node.op == 'call_module':
+            module = getattr(self.graph, node.target, None)
+            if isinstance(module, nn.Linear):
+                input_dim = module.in_features
+        
+        # Fall back to tensor_meta if needed
+        if input_dim is None and node.args and isinstance(node.args[0], torch.fx.Node):
+            if hasattr(node.args[0], 'meta') and 'tensor_meta' in node.args[0].meta:
+                shape = node.args[0].meta['tensor_meta'].shape
+                if shape and len(shape) > 0:
+                    input_dim = shape[-1]
+    
+        output_dim = None
+        # Try to get output dim from module first
+        if node.op == 'call_module':
+            module = getattr(self.graph, node.target, None)
+            if isinstance(module, nn.Linear):
+                output_dim = module.out_features
+        
+        # Fall back to tensor_meta if needed
+        if output_dim is None and hasattr(node, 'meta') and 'tensor_meta' in node.meta:
+            shape = node.meta['tensor_meta'].shape
+            if shape and len(shape) > 0:
+                output_dim = shape[-1]
+            
+        if input_dim is None or output_dim is None:
+            print(f"Warning: Could not determine full shape for node {node.name}")
+            
+        return (input_dim, output_dim)
+    
+    def _get_input_dim_from_parent(self, child, parent):
+        """Get the input dimension that child receives from parent"""
+        # First try to get from module definition
+        if child.op == 'call_module':
+            child_mod = getattr(self.graph, child.target, None)
+            if isinstance(child_mod, nn.Linear):
+                return child_mod.in_features
+        
+        # Next try parent's output dimension
+        if hasattr(parent, 'meta') and 'tensor_meta' in parent.meta:
+            parent_shape = parent.meta['tensor_meta'].shape
+            if parent_shape and len(parent_shape) > 0:
+                return parent_shape[-1]
+        
+        # Fallback to child's meta (least reliable)
+        if hasattr(child, 'meta') and 'tensor_meta' in child.meta:
+            for i, arg in enumerate(child.args):
+                if arg == parent:
+                    return child.meta['tensor_meta'].shape[-1]
+        return None
+    
+    def _get_output_dim(self, node):
+        """Get output dimension for a node"""
+        # First try module definition
+        if node.op == 'call_module':
+            module = getattr(self.graph, node.target, None)
+            if isinstance(module, nn.Linear):
+                return module.out_features
+        
+        # Fall back to tensor_meta
+        if hasattr(node, 'meta') and 'tensor_meta' in node.meta:
+            return node.meta['tensor_meta'].shape[-1]
+        return None
     
     def _cascade_forward(self, node, node_shape, visited):
         from utils import add_specific_node
@@ -108,15 +189,23 @@ class Cascade:
             if child_input_dim is not None and child_input_dim != node_shape[1]:
                 print(f"Child input {child_input_dim} doesn't match parent output {node_shape[1]}")
                 if self.use_reshape:
-                    # Only change the input size of the child to match parent's output
-                    self.graph = reshape_node(self.graph, child, new_in_features=node_shape[1])
+                    # Pass example_input for shape propagation
+                    example_input = torch.zeros(*self.graph_input_shape) if self.graph_input_shape else None
+                    self.graph = reshape_node(self.graph, child, new_in_features=node_shape[1], 
+                                            example_input=example_input)
                 else:
-                    # Use adapter as before
-                    if node_shape[1] > child_input_dim:
+                    # Adapter needs to handle *actual* dimensions, not target dimensions
+                    actual_parent_output = self._get_output_dim(node)
+                    if actual_parent_output is None:
+                       actual_parent_output = node_shape[1]  # Fall back to target if actual unknown
+                    
+                    if actual_parent_output > child_input_dim:
                         self.graph, adapter = add_specific_node(self.graph, node, nn.AdaptiveAvgPool1d(child_input_dim))
                         self._replace_parent_in_child(child, node, adapter)
                     else:
-                        self.graph, adapter = add_specific_node(self.graph, node, nn.CircularPad1d((0, child_input_dim - node_shape[1])))
+                       # Calculate correct padding based on actual size, not target
+                        padding_size = child_input_dim - actual_parent_output
+                        self.graph, adapter = add_specific_node(self.graph, node, nn.CircularPad1d((0, padding_size)))
                         self._replace_parent_in_child(child, node, adapter)
                 child_shape = self._get_node_shape(child)
                 self.graph = self._cascade_dimension_changes(child, child_shape, visited=visited)
@@ -152,41 +241,6 @@ class Cascade:
 
     # Helper methods for dimension analysis and node manipulation
     
-    def _get_node_shape(self, node):
-        """Get (input_dim, output_dim) tuple for a node"""
-        input_dim = None
-        if node.args and isinstance(node.args[0], torch.fx.Node):
-            if hasattr(node.args[0], 'meta') and 'tensor_meta' in node.args[0].meta:
-                shape = node.args[0].meta['tensor_meta'].shape
-                if shape and len(shape) > 0:
-                    input_dim = shape[-1]
-    
-        output_dim = None
-        if hasattr(node, 'meta') and 'tensor_meta' in node.meta:
-            shape = node.meta['tensor_meta'].shape
-            if shape and len(shape) > 0:
-                output_dim = shape[-1]
-            
-        if input_dim is None or output_dim is None:
-            print(f"Warning: Could not determine full shape for node {node.name}")
-            
-        return (input_dim, output_dim)
-    
-    def _get_input_dim_from_parent(self, child, parent):
-        """Get the input dimension that child receives from parent"""
-        if hasattr(child, 'meta') and 'tensor_meta' in child.meta:
-            for i, arg in enumerate(child.args):
-                if arg == parent:
-                    # Found the connection - for most ops, we need last dim
-                    return child.meta['tensor_meta'].shape[-1]
-        return None
-    
-    def _get_output_dim(self, node):
-        """Get output dimension for a node"""
-        if hasattr(node, 'meta') and 'tensor_meta' in node.meta:
-            return node.meta['tensor_meta'].shape[-1]
-        return None
-    
     def _replace_parent_in_child(self, child, old_parent, new_parent):
         """Replace a parent node with a new one in a child node's args"""
         for i, arg in enumerate(child.args):
@@ -220,7 +274,8 @@ def reshape_node(
     graph: torch.fx.GraphModule, 
     target_node: torch.fx.Node, 
     new_in_features: Optional[int] = None, 
-    new_out_features: Optional[int] = None
+    new_out_features: Optional[int] = None,
+    example_input: Optional[torch.Tensor] = None  # <-- Optionally pass example input
 ) -> torch.fx.GraphModule:  # <-- Change return type
     """
     Atomically replaces a node with a new node of the same type but new dimensions.
@@ -274,4 +329,7 @@ def reshape_node(
     
     # 7. Recompile the graph
     graph.recompile()
+    # Optionally update meta info if example_input is provided
+    if example_input is not None:
+        ShapeProp(graph).propagate(example_input)
     return graph  # <-- Return the graph, not new_node

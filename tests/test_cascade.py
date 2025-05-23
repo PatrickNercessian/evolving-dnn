@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.fx
 
-from core import add_specific_node, get_graph
+from core import add_specific_node, get_graph # Assuming add_specific_node is used elsewhere or can be removed if not
 from cascade import Cascade
 
 
@@ -33,64 +33,116 @@ class TestCascade(unittest.TestCase):
     """Simplified test cases for cascade functionality"""
     
     def test_basic_cascade(self):
-        """Test basic cascade functionality with careful dimension control"""
-        print("\nTesting basic cascade...")
-        
-        # Create a simple model
-        model = SimpleModel()
-        
-        # Create input shape
-        batch_size = 4
-        input_size = 10
-        input_shape = (batch_size, input_size)
-        
-        # Get the graph
-        graph = get_graph(model, input_shape)
-        
-        # Create a sample input tensor
-        sample_input = torch.randn(batch_size, input_size)
-        
-        # Get the original output as baseline
-        original_output = graph(sample_input)
-        print(f"Original output shape: {original_output.shape}")
-        
-        # Find the first linear layer
-        fc1_node = None
-        for node in graph.graph.nodes:
-            if node.op == 'call_module' and node.name == 'fc1':
-                fc1_node = node
-                break
-        
-        self.assertIsNotNone(fc1_node, "Couldn't find fc1 module")
-        
-        # Create a cascade instance
-        # To use reshaping for repairs:
-        cascader = Cascade(graph, use_reshape=True)
-        # To use adapters for repairs:
-        # cascader = Cascade(graph, use_reshape=False)
-        
-        # Use a shape that would normally require adaptation
-        new_hidden_size = 15  # Different from original 20
-        
-        try:
-            # Apply cascade dimensionality changes
-            graph = cascader.adapt_dimensions(
-                node=fc1_node,
-                node_shape=(input_size, new_hidden_size)
-            )
-            
-            # Run the model with the same input
-            new_output = graph(sample_input)
-            
-            print(f"New output shape: {new_output.shape}")
-            
-            # Check that output shape is maintained
-            self.assertEqual(original_output.shape, new_output.shape,
-                          "Output shape should be maintained after cascade")
-            
-            print("Basic cascade test passed!")
-        except Exception as e:
-            self.fail(f"Cascade test failed: {e}")
+        """Test basic cascade functionality with careful dimension control."""
+        for use_reshape_flag in [True, False]:
+            with self.subTest(use_reshape=use_reshape_flag):
+                print(f"\nTesting basic cascade with use_reshape={use_reshape_flag}...")
+                
+                # Create a simple model
+                model = SimpleModel()
+                
+                # Create input shape
+                batch_size = 4
+                input_size = 10
+                input_shape = (batch_size, input_size)
+                
+                # Get the graph
+                graph = get_graph(model, input_shape)
+                
+                # Create a sample input tensor
+                sample_input = torch.randn(*input_shape)
+                
+                # Get the original output as baseline
+                original_output = graph(sample_input)
+                
+                # Find the first linear layer
+                fc1_node = None
+                for node_iter in graph.graph.nodes:
+                    if node_iter.op == 'call_module' and node_iter.name == 'fc1':
+                        fc1_node = node_iter
+                        break
+                self.assertIsNotNone(fc1_node, "Couldn't find fc1 module")
+                
+                # Create a cascade instance with the current strategy
+                cascader = Cascade(graph, use_reshape=use_reshape_flag)
+                
+                # Define the new shape for fc1's output
+                new_hidden_size = 15
+                
+                try:
+                    # Apply cascade dimensionality changes
+                    # Pass input_shape for internal ShapeProp calls in Cascade
+                    graph = cascader.adapt_dimensions(
+                        node=fc1_node,
+                        node_shape=(input_size, new_hidden_size),
+                        input_shape=input_shape 
+                    )
+                    
+                    # Run the model with the same input
+                    new_output = graph(sample_input)
+                    
+                    # Check that output shape is maintained
+                    self.assertEqual(original_output.shape, new_output.shape,
+                                  f"Output shape should be maintained after cascade (use_reshape={use_reshape_flag})")
+                    
+                    print(f"Basic cascade test passed for use_reshape={use_reshape_flag}!")
+                except Exception as e:
+                    self.fail(f"Basic cascade test failed for use_reshape={use_reshape_flag}: {e}")
+
+    def test_cascade_functionality(self):
+        """Test that the cascaded graph is functional for forward and backward passes."""
+        for use_reshape_flag in [True, False]:
+            with self.subTest(use_reshape=use_reshape_flag):
+                print(f"\nTesting cascade graph functionality with use_reshape={use_reshape_flag}...")
+
+                # Create a simple model
+                model = SimpleModel()
+                batch_size = 4
+                input_size = 10
+                input_shape = (batch_size, input_size)
+                graph = get_graph(model, input_shape)
+                sample_input = torch.randn(*input_shape, requires_grad=True)
+                original_output = graph(sample_input.clone().detach()) # For shape comparison
+
+                # Find the first linear layer
+                fc1_node = None
+                for node_iter in graph.graph.nodes:
+                    if node_iter.op == 'call_module' and node_iter.name == 'fc1':
+                        fc1_node = node_iter
+                        break
+                self.assertIsNotNone(fc1_node, "Couldn't find fc1 module")
+
+                # Create a cascade instance with the current strategy
+                cascader = Cascade(graph, use_reshape=use_reshape_flag)
+                
+                # Define the new shape for fc1's output
+                new_hidden_size = 15
+                
+                try:
+                    # Apply cascade dimensionality changes
+                    # Pass input_shape for internal ShapeProp calls in Cascade
+                    graph = cascader.adapt_dimensions(
+                        node=fc1_node,
+                        node_shape=(input_size, new_hidden_size),
+                        input_shape=input_shape
+                    )
+
+                    # Forward pass
+                    output = graph(sample_input)
+                    # Check that output shape is maintained (or matches expected final shape)
+                    self.assertEqual(output.shape, original_output.shape,
+                                     f"Output shape mismatch after cascade (use_reshape={use_reshape_flag})")
+                    # Or, more specifically for this model:
+                    # self.assertEqual(output.shape[0], batch_size)
+                    # self.assertEqual(output.shape[1], 5) 
+
+                    # Backward pass
+                    loss = output.sum()
+                    loss.backward() 
+                    self.assertIsNotNone(sample_input.grad, f"Gradients not computed (use_reshape={use_reshape_flag})")
+                    print(f"Cascade graph functional for forward/backward with use_reshape={use_reshape_flag}.")
+                except Exception as e:
+                    self.fail(f"Cascade functionality test failed for use_reshape={use_reshape_flag}: {e}")
 
 
 if __name__ == '__main__':
