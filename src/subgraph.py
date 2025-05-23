@@ -40,11 +40,11 @@ def crossover_subgraph(child: Individual, parent: Individual):
 
     # Visualize the graph with the subgraph highlighted
     x = random.randint(0, 1000000)
-    visualize_graph(parent.graph_module, "model_graph_highlighted", f"{x}_{parent.id}_graph_highlighted.svg", highlight_nodes=subgraph_node_names)
+    # visualize_graph(parent.graph_module, "model_graph_highlighted", f"{x}_{parent.id}_graph_highlighted.svg", highlight_nodes=subgraph_node_names)
 
     child.graph_module, new_node_names = insert_subgraph(child.graph_module, **insert_subgraph_kwargs)
 
-    visualize_graph(child.graph_module, "model_graph2_highlighted", f"{x}_{child.id}_graph_highlighted.svg", highlight_nodes=new_node_names)
+    # visualize_graph(child.graph_module, "model_graph2_highlighted", f"{x}_{child.id}_graph_highlighted.svg", highlight_nodes=new_node_names)
 
 def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     """
