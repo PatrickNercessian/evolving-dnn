@@ -7,6 +7,8 @@ import time
 from collections import defaultdict
 
 import torch
+from torch.nn import functional as F
+
 from torch.utils.data.dataloader import DataLoader
 from mingpt.utils import CfgNode as CN
 
@@ -96,7 +98,8 @@ class Trainer:
             x, y = batch
 
             # forward the model
-            logits, self.loss = model(x, y)
+            logits = model(x)
+            self.loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1), ignore_index=-1)
 
             # backprop and update the parameters
             model.zero_grad(set_to_none=True)

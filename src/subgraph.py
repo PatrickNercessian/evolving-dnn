@@ -3,7 +3,48 @@ import random
 
 import torch
 
+from src.individual import Individual
 from src.utils import adapt_node_shape, get_unique_name
+from src.visualization import visualize_graph
+
+MAX_BOUNDARY_NODES = 10
+MIN_NODES = 4
+MAX_NODES = 32
+
+def crossover_subgraph(child: Individual, parent: Individual):
+    subgraph_nodes = set()
+    lowest_num_boundary_nodes = float('inf')
+    broken_subgraphs = 0
+    for _ in range(20):
+        try:
+            num_nodes = random.randint(MIN_NODES, MAX_NODES)
+            subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(parent.graph_module, num_nodes)
+            num_boundary_nodes = len(input_boundary_nodes) + len(output_boundary_nodes)
+            if num_boundary_nodes <= MAX_BOUNDARY_NODES and len(subgraph_nodes) > MIN_NODES and num_boundary_nodes < lowest_num_boundary_nodes:
+                input_mapping, topo_target_input_nodes, output_mapping = find_subgraph_connections(child.graph_module.graph, input_boundary_nodes, output_boundary_nodes)
+                lowest_num_boundary_nodes = num_boundary_nodes
+
+                insert_subgraph_kwargs = {
+                    "subgraph_nodes": subgraph_nodes,
+                    "input_mapping": input_mapping,
+                    "topo_target_input_nodes": topo_target_input_nodes,
+                    "output_mapping": output_mapping
+                }
+        except ValueError as e:
+            print("WARNING: error finding subgraph", e)
+            broken_subgraphs += 1
+    print("broken_subgraphs", broken_subgraphs)
+
+    # Extract node names for highlighting
+    subgraph_node_names = {node.name for node in insert_subgraph_kwargs["subgraph_nodes"]}
+
+    # Visualize the graph with the subgraph highlighted
+    x = random.randint(0, 1000000)
+    visualize_graph(parent.graph_module, "model_graph_highlighted", f"{x}_{parent.id}_graph_highlighted.svg", highlight_nodes=subgraph_node_names)
+
+    child.graph_module, new_node_names = insert_subgraph(child.graph_module, **insert_subgraph_kwargs)
+
+    visualize_graph(child.graph_module, "model_graph2_highlighted", f"{x}_{child.id}_graph_highlighted.svg", highlight_nodes=new_node_names)
 
 def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     """
@@ -218,13 +259,13 @@ def insert_subgraph(
     new_node_names, module_name_map = _copy_modules(target_graph_module, subgraph_nodes)
     old_to_new = {}
     ordered_subgraph = _kanh_algo(subgraph_nodes)
-    print("ordered_subgraph", ordered_subgraph)
-    print("input_mapping", input_mapping)
-    print("output_mapping", output_mapping)
+    # print("ordered_subgraph", ordered_subgraph)
+    # print("input_mapping", input_mapping)
+    # print("output_mapping", output_mapping)
 
     # Insert nodes in topological order and adapt shapes
     for i, node in enumerate(ordered_subgraph):
-        print("inserting node", node)
+        # print("inserting node", node)
         after_node = old_to_new[ordered_subgraph[i-1]] if i > 0 else topo_target_input_nodes[-1]
         if node in input_mapping:  # Handle input boundary nodes
             target_inputs = []
@@ -321,7 +362,7 @@ def _kanh_algo(subgraph_nodes: set[torch.fx.Node]) -> list[torch.fx.Node]:
     return topo_order
 
 def _insert_node(target_graph: torch.fx.GraphModule, after_node: torch.fx.Node, node: torch.fx.Node, new_args, module_name_map):
-    print("inserting after", after_node)
+    # print("inserting after", after_node)
     def _insert_call(func):
         target = module_name_map[node.target] if (node.op == "call_module" and node.target in module_name_map) else node.target
         with target_graph.graph.inserting_after(after_node):

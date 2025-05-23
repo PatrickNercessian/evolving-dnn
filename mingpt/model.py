@@ -224,7 +224,7 @@ class GPT(nn.Module):
 
         return model
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx):
         device = idx.device
         batch_size, sequence_length = idx.size()
         if self.is_proxy_for_fx:
@@ -240,15 +240,8 @@ class GPT(nn.Module):
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
-        logits = self.lm_head(x)
+        return self.lm_head(x)
 
-        # if we are given some desired targets also calculate the loss
-        loss = None
-        if targets is not None and not isinstance(targets, torch.fx.Proxy):
-            print("targets", targets)
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
-
-        return logits, loss
 
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k=None):

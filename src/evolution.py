@@ -106,6 +106,7 @@ class Evolution:
         child = copy.deepcopy(parent1)
         for crossover_fn, probability in self.crossover_fns_and_probabilities:
             if random.random() < probability:
+                print(f"Crossover between {parent1.id} and {parent2.id} with {crossover_fn.__name__}")
                 crossover_fn(child, parent2)
         return child
 

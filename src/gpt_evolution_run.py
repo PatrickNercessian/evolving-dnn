@@ -1,3 +1,8 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# TODO remove above
+
 from src.bpe import tokenize_string, VOCAB_SIZE
 from src.initial_population import generate_initial_population
 from src.evaluate import calculate_fitness
@@ -10,6 +15,7 @@ from src.hyperparam_variation import (
     mutate_learning_rate_scheduler, crossover_learning_rate_scheduler,
     mutate_optimizer_parameters, crossover_optimizer_parameters,
 )
+from src.subgraph import crossover_subgraph
 
 import torch
 import os
@@ -30,8 +36,8 @@ if __name__ == '__main__':
 
     train_dataset = TextDataset(data, BLOCK_SIZE)
 
-    TARGET_POPULATION_SIZE = 3
-    NUM_CHILDREN_PER_GENERATION = 3
+    TARGET_POPULATION_SIZE = 2
+    NUM_CHILDREN_PER_GENERATION = 2
 
     gpt_config_params = {
         "block_size": BLOCK_SIZE,
@@ -39,7 +45,7 @@ if __name__ == '__main__':
         "head_bounds": (2, 5),
         "embed_bounds": (128, 512),
     }
-    train_config_params = { "max_iters": 101, "device": "mps" }
+    train_config_params = { "max_iters": 10, "device": "mps" }
 
     val_loader = torch.utils.data.DataLoader(
         train_dataset,  # Using same dataset for validation for now
@@ -65,6 +71,7 @@ if __name__ == '__main__':
             train_config_params,
         ),
         fitness_fn=fitness_wrapper,  # Now only takes individual as parameter
+        crossover_instead_of_mutation_rate=1.0,
         mutation_fns_and_probabilities=[
             (mutate_batch_size, 0.3),
             (mutate_learning_rate, 0.3),
@@ -72,10 +79,11 @@ if __name__ == '__main__':
             (mutate_optimizer_parameters, 0.3),
         ],
         crossover_fns_and_probabilities=[
-            (crossover_batch_size, 0.3),
-            (crossover_learning_rate, 0.3),
-            (crossover_learning_rate_scheduler, 0.3),
-            (crossover_optimizer_parameters, 0.3),
+            (crossover_subgraph, 1.0),
+            (crossover_batch_size, 0.0),
+            (crossover_learning_rate, 0.0),
+            (crossover_learning_rate_scheduler, 0.0),
+            (crossover_optimizer_parameters, 0.0),
         ],
         target_population_size=TARGET_POPULATION_SIZE,
         num_children_per_generation=NUM_CHILDREN_PER_GENERATION,
