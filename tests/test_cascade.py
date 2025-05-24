@@ -144,6 +144,87 @@ class TestCascade(unittest.TestCase):
                 except Exception as e:
                     self.fail(f"Cascade functionality test failed for use_reshape={use_reshape_flag}: {e}")
 
+    def test_cascade_parent_adjustment(self):
+        """Test cascade when parent node must be adjusted (input dimension change)."""
+        for use_reshape_flag in [True, False]:
+            with self.subTest(use_reshape=use_reshape_flag):
+                print(f"\nTesting parent adjustment with use_reshape={use_reshape_flag}...")
+                # Model: input -> fc1 -> act -> fc2
+                model = SimpleModel()
+                batch_size = 4
+                input_size = 10
+                input_shape = (batch_size, input_size)
+                graph = get_graph(model, input_shape)
+                sample_input = torch.randn(*input_shape)
+                original_output = graph(sample_input)
+
+                # Find fc2 node
+                fc2_node = None
+                for node_iter in graph.graph.nodes:
+                    if node_iter.op == 'call_module' and node_iter.name == 'fc2':
+                        fc2_node = node_iter
+                        break
+                self.assertIsNotNone(fc2_node, "Couldn't find fc2 module")
+
+                # Cascade: change fc2's input to 8 (from 20), should propagate backward to fc1
+                cascader = Cascade(graph, use_reshape=use_reshape_flag)
+                new_fc2_in = 8
+                graph = cascader.adapt_dimensions(
+                    node=fc2_node,
+                    node_shape=(new_fc2_in, 5),
+                    input_shape=input_shape
+                )
+                new_output = graph(sample_input)
+                self.assertEqual(original_output.shape, new_output.shape)
+                print(f"Parent adjustment test passed for use_reshape={use_reshape_flag}!")
+
+    def test_cascade_through_shapeless(self):
+        """Test cascade traverses through shapeless nodes (e.g., ReLU, Dropout)."""
+        class ModelWithDropout(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.fc1 = nn.Linear(10, 20)
+                self.relu = nn.ReLU()
+                self.drop = nn.Dropout()
+                self.fc2 = nn.Linear(20, 5)
+            def forward(self, x):
+                x = self.fc1(x)
+                x = self.relu(x)
+                x = self.drop(x)
+                x = self.fc2(x)
+                return x
+
+        for use_reshape_flag in [True, False]:
+            with self.subTest(use_reshape=use_reshape_flag):
+                print(f"\nTesting cascade through shapeless nodes with use_reshape={use_reshape_flag}...")
+                model = ModelWithDropout()
+                batch_size = 4
+                input_size = 10
+                input_shape = (batch_size, input_size)
+                graph = get_graph(model, input_shape)
+                sample_input = torch.randn(*input_shape)
+                original_output = graph(sample_input)
+
+                # Find fc1 node
+                fc1_node = None
+                for node_iter in graph.graph.nodes:
+                    if node_iter.op == 'call_module' and node_iter.name == 'fc1':
+                        fc1_node = node_iter
+                        break
+                self.assertIsNotNone(fc1_node, "Couldn't find fc1 module")
+
+                # Cascade: change fc1's output to 15, should propagate through ReLU and Dropout to fc2
+                cascader = Cascade(graph, use_reshape=use_reshape_flag)
+                new_hidden_size = 15
+                graph = cascader.adapt_dimensions(
+                    node=fc1_node,
+                    node_shape=(input_size, new_hidden_size),
+                    input_shape=input_shape
+                )
+                new_output = graph(sample_input)
+                self.assertEqual(original_output.shape, new_output.shape)
+                print(f"Cascade through shapeless nodes test passed for use_reshape={use_reshape_flag}!")
+
 
 if __name__ == '__main__':
     unittest.main()
