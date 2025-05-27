@@ -8,6 +8,8 @@ from src.individual import Individual
 from src.utils import adapt_node_shape, get_unique_name
 from src.visualization import visualize_graph
 
+from torch.fx.passes.shape_prop import ShapeProp
+
 MAX_BOUNDARY_NODES = 10
 MIN_NODES = 4
 MAX_NODES = 32
@@ -390,7 +392,9 @@ def _insert_node(target_graph: torch.fx.GraphModule, after_node: torch.fx.Node, 
     # print("inserting after", after_node)
     def _insert_call(func, target):
         with target_graph.graph.inserting_after(after_node):
-            return func(target, args=new_args, kwargs=node.kwargs)
+            new_node = func(target, args=new_args, kwargs=node.kwargs)
+            new_node.meta["tensor_meta"] = node.meta["tensor_meta"]
+            return new_node
 
     if node.op == "call_module":
         return _insert_call(target_graph.graph.call_module, new_module_name if new_module_name else node.target)
