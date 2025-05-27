@@ -303,8 +303,8 @@ def insert_subgraph(
                 target_graph_module, _ = adapt_node_shape(
                     target_graph_module,
                     node=target_input,
-                    current_size=target_input.meta["tensor_meta"].shape,
-                    target_size=node.args[j].meta["tensor_meta"].shape,
+                    current_size=target_input.meta["tensor_meta"].shape[1:],
+                    target_size=node.args[j].meta["tensor_meta"].shape[1:],
                     target_user=new_node
                 )
         else:
@@ -340,8 +340,8 @@ def insert_subgraph(
             target_graph_module, _ = adapt_node_shape(
                 target_graph_module,
                 node=new_out_node,
-                current_size=sub_out.meta["tensor_meta"].shape,
-                target_size=first_arg_shape,
+                current_size=sub_out.meta["tensor_meta"].shape[1:],
+                target_size=first_arg_shape[1:],
                 target_user=user
             )
 
