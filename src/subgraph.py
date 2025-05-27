@@ -349,6 +349,19 @@ def insert_subgraph(
     
     target_graph_module.graph.lint()
     target_graph_module.recompile()
+
+    # Shape propagation
+    try:
+        ShapeProp(target_graph_module).propagate(target_graph_module.example_input)
+    except Exception as e:
+        print("WARNING: error propagating shapes", e)
+        print("\nTarget graph nodes with shapes:")
+        for node in target_graph_module.graph.nodes:
+            if hasattr(node, "meta") and "tensor_meta" in node.meta:
+                print(f"{node.name}: {node.meta['tensor_meta'].shape}")
+            else:
+                print(f"{node.name}: No shape info")
+
     return target_graph_module, new_node_names
 
 def _kanh_algo(subgraph_nodes: set[torch.fx.Node]) -> list[torch.fx.Node]:
