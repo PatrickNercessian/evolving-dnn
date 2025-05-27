@@ -45,7 +45,7 @@ if __name__ == '__main__':
         "head_bounds": (2, 5),
         "embed_bounds": (128, 512),
     }
-    train_config_params = { "max_iters": 10, "device": "mps" }
+    train_config_params = { "max_iters": 1, "device": "cpu" }
 
     val_loader = torch.utils.data.DataLoader(
         train_dataset,  # Using same dataset for validation for now

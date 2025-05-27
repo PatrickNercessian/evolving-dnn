@@ -1,5 +1,6 @@
 from collections import deque, defaultdict
 import random
+import copy
 
 import torch
 
@@ -15,7 +16,7 @@ def crossover_subgraph(child: Individual, parent: Individual):
     subgraph_nodes = set()
     lowest_num_boundary_nodes = float('inf')
     broken_subgraphs = 0
-    for _ in range(20):
+    for _ in range(100):
         try:
             num_nodes = random.randint(MIN_NODES, MAX_NODES)
             subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(parent.graph_module, num_nodes)
@@ -45,6 +46,7 @@ def crossover_subgraph(child: Individual, parent: Individual):
     child.graph_module, new_node_names = insert_subgraph(child.graph_module, **insert_subgraph_kwargs)
 
     # visualize_graph(child.graph_module, "model_graph2_highlighted", f"{x}_{child.id}_graph_highlighted.svg", highlight_nodes=new_node_names)
+    # visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", f"{x}_{child.id}_graph_after_crossover_highlighted.svg", highlight_nodes=new_node_names)
 
 def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     """
@@ -256,7 +258,7 @@ def insert_subgraph(
     Returns:
         Modified target_graph.
     """
-    new_node_names, module_name_map = _copy_modules(target_graph_module, subgraph_nodes)
+    new_node_names = set()
     old_to_new = {}
     ordered_subgraph = _kanh_algo(subgraph_nodes)
     # print("ordered_subgraph", ordered_subgraph)
@@ -265,6 +267,20 @@ def insert_subgraph(
 
     # Insert nodes in topological order and adapt shapes
     for i, node in enumerate(ordered_subgraph):
+        new_module_name, new_attr_name = None, None
+        if node.op == "call_module":
+            new_module_name = get_unique_name(target_graph_module, node.target)
+            # Create a deep copy to avoid sharing parameters with the parent
+            original_module = node.graph.owning_module.get_submodule(node.target)
+            copied_module = copy.deepcopy(original_module)  # TODO unsure if this is necessary
+            target_graph_module.add_submodule(new_module_name, m=copied_module)
+            new_node_names.add(new_module_name)
+        elif node.op == "get_attr":
+            new_attr_name = get_unique_name(target_graph_module, node.target)
+            original_attr_value = getattr(node.graph.owning_module, node.target)
+            setattr(target_graph_module, new_attr_name, copy.deepcopy(original_attr_value))
+            new_node_names.add(new_attr_name)
+
         # print("inserting node", node)
         after_node = old_to_new[ordered_subgraph[i-1]] if i > 0 else topo_target_input_nodes[-1]
         if node in input_mapping:  # Handle input boundary nodes
@@ -273,7 +289,14 @@ def insert_subgraph(
                 target_inputs.append(old_to_new[arg] if arg in subgraph_nodes and isinstance(arg, torch.fx.Node) else arg)
 
             assert len(target_inputs) == len(node.args)
-            new_node = _insert_node(target_graph_module, after_node=after_node, node=node, new_args=tuple(target_inputs), module_name_map=module_name_map)
+            new_node = _insert_node(
+                target_graph_module,
+                after_node=after_node,
+                node=node,
+                new_args=tuple(target_inputs),
+                new_module_name=new_module_name,
+                new_attr_name=new_attr_name
+            )
 
             # Adapt shape if needed
             for j, target_input in enumerate(target_inputs):
@@ -286,7 +309,7 @@ def insert_subgraph(
                 )
         else:
             new_args = tuple(old_to_new[arg] if isinstance(arg, torch.fx.Node) else arg for arg in node.args)
-            new_node = _insert_node(target_graph_module, after_node, node, new_args, module_name_map)
+            new_node = _insert_node(target_graph_module, after_node, node, new_args, new_module_name, new_attr_name)
 
         if new_node:
             new_node_names.add(new_node.name)
@@ -328,17 +351,6 @@ def insert_subgraph(
     target_graph_module.recompile()
     return target_graph_module, new_node_names
 
-def _copy_modules(target_graph_module: torch.fx.GraphModule, subgraph_nodes: set[torch.fx.Node]):
-    new_node_names = set()
-    module_name_map = {}
-    for node in subgraph_nodes:
-        if node.op == "call_module":
-            name = get_unique_name(target_graph_module, node.target)
-            target_graph_module.add_submodule(name, m=node.graph.owning_module.get_submodule(node.target))
-            new_node_names.add(name)
-            module_name_map[node.target] = name
-    return new_node_names,module_name_map
-
 def _kanh_algo(subgraph_nodes: set[torch.fx.Node]) -> list[torch.fx.Node]:
     # Build dependency graph (only within subgraph_nodes)
     in_degree = {node: 0 for node in subgraph_nodes}
@@ -361,21 +373,20 @@ def _kanh_algo(subgraph_nodes: set[torch.fx.Node]) -> list[torch.fx.Node]:
                 topo_queue.append(dependent)
     return topo_order
 
-def _insert_node(target_graph: torch.fx.GraphModule, after_node: torch.fx.Node, node: torch.fx.Node, new_args, module_name_map):
+def _insert_node(target_graph: torch.fx.GraphModule, after_node: torch.fx.Node, node: torch.fx.Node, new_args, new_module_name, new_attr_name):
     # print("inserting after", after_node)
-    def _insert_call(func):
-        target = module_name_map[node.target] if (node.op == "call_module" and node.target in module_name_map) else node.target
+    def _insert_call(func, target):
         with target_graph.graph.inserting_after(after_node):
             return func(target, args=new_args, kwargs=node.kwargs)
 
     if node.op == "call_module":
-        return _insert_call(target_graph.graph.call_module)
+        return _insert_call(target_graph.graph.call_module, new_module_name if new_module_name else node.target)
     elif node.op == "call_function":
-        return _insert_call(target_graph.graph.call_function)
+        return _insert_call(target_graph.graph.call_function, node.target)
     elif node.op == "call_method":
-        return _insert_call(target_graph.graph.call_method)
+        return _insert_call(target_graph.graph.call_method, node.target)
     elif node.op == "get_attr":
         with target_graph.graph.inserting_after(after_node):
-            return target_graph.graph.get_attr(node.target)
+            return target_graph.graph.get_attr(new_attr_name if new_attr_name else node.target)
     else:
         raise ValueError("unsupported node type", node, node.op)
