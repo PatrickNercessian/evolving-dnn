@@ -11,7 +11,7 @@ from src.visualization import visualize_graph
 from torch.fx.passes.shape_prop import ShapeProp
 
 MAX_BOUNDARY_NODES = 10
-MIN_NODES = 4
+MIN_NODES = 1
 MAX_NODES = 32
 
 def crossover_subgraph(child: Individual, parent: Individual):
@@ -20,10 +20,11 @@ def crossover_subgraph(child: Individual, parent: Individual):
     broken_subgraphs = 0
     for _ in range(100):
         try:
-            num_nodes = random.randint(MIN_NODES, MAX_NODES)
+            # num_nodes = random.randint(MIN_NODES, MAX_NODES)
+            num_nodes = 4
             subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(parent.graph_module, num_nodes)
             num_boundary_nodes = len(input_boundary_nodes) + len(output_boundary_nodes)
-            if num_boundary_nodes <= MAX_BOUNDARY_NODES and len(subgraph_nodes) > MIN_NODES and num_boundary_nodes < lowest_num_boundary_nodes:
+            if num_boundary_nodes <= MAX_BOUNDARY_NODES and len(subgraph_nodes) >= MIN_NODES and num_boundary_nodes < lowest_num_boundary_nodes:
                 input_mapping, topo_target_input_nodes, output_mapping = find_subgraph_connections(child.graph_module.graph, input_boundary_nodes, output_boundary_nodes)
                 lowest_num_boundary_nodes = num_boundary_nodes
 
@@ -62,7 +63,9 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
         A tuple of the candidate nodes, input boundary nodes, and output boundary nodes.
     """
     all_nodes = list(graph_module.graph.nodes)
-    anchor_node = random.choice(all_nodes)
+    # anchor_node = random.choice(all_nodes)
+    # Pick the middle node
+    anchor_node = all_nodes[len(all_nodes) // 2]
     while not _is_allowed_subgraph_node_type(anchor_node):
         print("WARNING: picked node with non-allowed type or name:", anchor_node.op, anchor_node.name)
         anchor_node = random.choice(all_nodes)
@@ -299,7 +302,7 @@ def insert_subgraph(
                 new_module_name=new_module_name,
                 new_attr_name=new_attr_name
             )
-
+            
             # Adapt shape if needed
             for j, target_input in enumerate(target_inputs):
                 target_graph_module, _ = adapt_node_shape(

@@ -1,3 +1,4 @@
+import copy
 import torch
 import torch.nn as nn
 from src.core import get_graph
@@ -7,22 +8,60 @@ from src.subgraph import random_subgraph, find_subgraph_connections, insert_subg
 class MoreComplexModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(4, 8)
+        # Initial feature extraction layers
+        self.fc1 = nn.Linear(20, 32)
         self.relu1 = nn.ReLU()
-        self.fc2 = nn.Linear(8, 8)
+        
+        # First residual block
+        self.fc2 = nn.Linear(32, 32)
+        self.dropout1 = nn.Dropout(0.2)
+        self.fc3 = nn.Linear(32, 32)
         self.relu2 = nn.ReLU()
-        self.fc3 = nn.Linear(8, 4)
+        
+        # Second residual block
+        self.fc4 = nn.Linear(32, 16)
         self.relu3 = nn.ReLU()
-        self.fc4 = nn.Linear(4, 2)
-        self.skip = nn.Linear(4, 2)  # skip connection from input to output
+        
+        # Final processing layers
+        self.fc5 = nn.Linear(16, 8)
+        self.dropout2 = nn.Dropout(0.1)
+        self.fc6 = nn.Linear(8, 4)
+        self.relu4 = nn.ReLU()
+        
+        # Output layers with skip connections
+        self.fc7 = nn.Linear(4, 2)
+        self.skip1 = nn.Linear(4, 2)  # Skip from first block
+        self.skip2 = nn.Linear(32, 2)  # Skip from second block
+        self.skip3 = nn.Linear(4, 2)   # Skip from final processing
 
     def forward(self, x):
-        out1 = self.relu1(self.fc1(x))
-        out2 = self.relu2(self.fc2(out1))
-        out3 = self.relu3(self.fc3(out2))
-        out_main = self.fc4(out3)
-        out_skip = self.skip(x)
-        return out_main + out_skip
+        # Initial feature extraction
+        out = self.relu1(self.fc1(x))
+        
+        # First residual block
+        residual1 = self.fc2(out)
+        residual1 = self.dropout1(residual1)
+        residual1 = self.fc3(residual1)
+        residual1 = self.relu2(residual1)
+        
+        # Second residual block
+        residual2 = self.fc4(residual1)
+        residual2 = self.relu3(residual2)
+        
+        # Final processing
+        out = self.fc5(residual2)
+        out = self.dropout2(out)
+        out = self.fc6(out)
+        out = self.relu4(out)
+        
+        # Combine outputs with skip connections
+        main_out = self.fc7(out)
+        skip1_out = self.skip1(out)
+        skip2_out = self.skip2(residual1)
+        skip3_out = self.skip3(out)
+        
+        return main_out + skip1_out + skip2_out + skip3_out
+
 
 def make_simple_model():
     return MoreComplexModel()
@@ -31,12 +70,17 @@ def test_subgraph_functions():
     # Create two simple models and their graphs
     model1 = make_simple_model()
     model2 = make_simple_model()
-    example_input = torch.randn(1, 4)
+    example_input = torch.randn(1, 20)
+    # Test example input on model1
+    # print("Testing example input on model1:")
+    # output = model1(example_input)
+    # print(f"Output: {output}")
+
     graph1 = get_graph(model1, example_input=example_input)
     graph2 = get_graph(model2, example_input=example_input)
 
     # Test random_subgraph
-    num_nodes = 2
+    num_nodes = 3
     subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(graph1, num_nodes)
     print(f"Subgraph nodes: {len(subgraph_nodes)}")
     print(f"Input boundary nodes: {len(input_boundary_nodes)}")
@@ -80,7 +124,8 @@ def test_subgraph_functions():
     for i in range(4):
         train_config = CN()
         train_config.learning_rate = 0.01
-        pop.append(Individual(graph2_mod, train_config, i))
+        # Create individual with graph2_mod deepcopy
+        pop.append(Individual(copy.deepcopy(graph2_mod), train_config, i))
 
     evo = Evolution(
         population=pop,
