@@ -1,4 +1,3 @@
-import pydot
 from torch.fx.passes.graph_drawer import FxGraphDrawer
 
 def visualize_graph(graph, name="model_graph", output_path=None, highlight_nodes=None):

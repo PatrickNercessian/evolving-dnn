@@ -104,7 +104,6 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
         if all(arg is not None for arg in input_mapping[node]):
             del input_mapping[node]  # if all node inputs are in the subgraph, we don't need to keep the mapping
         
-        
         for user_node in node.users:
             if user_node in subgraph_nodes:
                 output_mapping[node].append(user_node)
@@ -263,9 +262,9 @@ def insert_subgraph(
     new_node_names = set()
     old_to_new = {}
     ordered_subgraph = _kanh_algo(subgraph_nodes)
-    # print("ordered_subgraph", ordered_subgraph)
-    # print("input_mapping", input_mapping)
-    # print("output_mapping", output_mapping)
+    print("ordered_subgraph", ordered_subgraph)
+    print("input_mapping", input_mapping)
+    print("output_mapping", output_mapping)
 
     # Insert nodes in topological order and adapt shapes
     for i, node in enumerate(ordered_subgraph):
@@ -321,6 +320,9 @@ def insert_subgraph(
     for sub_out, users in output_mapping.items():
         print("sub_out", sub_out)
         for user in users:
+            if user in subgraph_nodes:
+                print("user already in subgraph_nodes", user)  # TODO instead of skipping, we might not even need to add it in the first place, in random_subgraph. I think I did this in case we cared about order of users, but I don't think we do...?
+                continue
             new_out_node = old_to_new[sub_out]
             # Replace the input of user with new_out_node
             # TODO should we do a random selection instead of the first one with a shape?
