@@ -31,6 +31,7 @@ class Evolution:
             block_size: Block size for the model
         """
         self.population = population
+        self.historical_population = []
         self.fitness_fn = fitness_fn
         self.crossover_instead_of_mutation_rate = crossover_instead_of_mutation_rate
         self.mutation_fns_and_probabilities = mutation_fns_and_probabilities
@@ -93,6 +94,7 @@ class Evolution:
                     print(child.graph_module.graph)
 
             self.population.extend(new_children)
+            self.historical_population.extend(self.population)
 
     def _selection(self) -> list[Individual]:
         """Select individuals for breeding based on fitness scores"""
