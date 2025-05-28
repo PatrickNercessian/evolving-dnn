@@ -17,6 +17,7 @@ from src.individual import Individual
 from src.core import add_node, get_graph
 from src.individual_graph_module import IndividualGraphModule
 from mingpt.utils import CfgNode as CN
+from src.subgraph import crossover_subgraph
 
 print("Custom imports completed")
 
@@ -514,14 +515,14 @@ def test_evolution():
     evolution = Evolution(
         population=population,
         fitness_fn=fitness_function,
-        crossover_instead_of_mutation_rate=0.0,  # Disable crossover
+        crossover_instead_of_mutation_rate=0.3,  # Disable crossover
         mutation_fns_and_probabilities=[
             (mutation_add_linear, 0.4),
             (mutation_add_relu, 0.2),
             (mutation_add_skip_connection, 0.2),
             (mutation_add_branch, 0.7),
         ],
-        crossover_fns_and_probabilities=[],  # Empty crossover functions
+        crossover_fns_and_probabilities=[(crossover_subgraph, 0.3)],  # Empty crossover functions
         target_population_size=5,
         num_children_per_generation=3,
         block_size=128,
