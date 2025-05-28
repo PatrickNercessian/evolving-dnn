@@ -1,6 +1,7 @@
 from collections import deque, defaultdict
 import random
 import copy
+import traceback
 
 import torch
 
@@ -11,7 +12,7 @@ from src.visualization import visualize_graph
 from torch.fx.passes.shape_prop import ShapeProp
 
 MAX_BOUNDARY_NODES = 10
-MIN_NODES = 1
+MIN_NODES = 4
 MAX_NODES = 32
 
 def crossover_subgraph(child: Individual, parent: Individual):
@@ -20,8 +21,7 @@ def crossover_subgraph(child: Individual, parent: Individual):
     broken_subgraphs = 0
     for _ in range(100):
         try:
-            # num_nodes = random.randint(MIN_NODES, MAX_NODES)
-            num_nodes = 4
+            num_nodes = random.randint(MIN_NODES, MAX_NODES)
             subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(parent.graph_module, num_nodes)
             num_boundary_nodes = len(input_boundary_nodes) + len(output_boundary_nodes)
             if num_boundary_nodes <= MAX_BOUNDARY_NODES and len(subgraph_nodes) >= MIN_NODES and num_boundary_nodes < lowest_num_boundary_nodes:
@@ -44,12 +44,11 @@ def crossover_subgraph(child: Individual, parent: Individual):
 
     # Visualize the graph with the subgraph highlighted
     x = random.randint(0, 1000000)
-    # visualize_graph(parent.graph_module, "model_graph_highlighted", f"{x}_{parent.id}_graph_highlighted.svg", highlight_nodes=subgraph_node_names)
+    visualize_graph(parent.graph_module, "model_graph_highlighted", f"{x}_{parent.id}_graph_highlighted.svg", highlight_nodes=subgraph_node_names)
 
     child.graph_module, new_node_names = insert_subgraph(child.graph_module, **insert_subgraph_kwargs)
 
-    # visualize_graph(child.graph_module, "model_graph2_highlighted", f"{x}_{child.id}_graph_highlighted.svg", highlight_nodes=new_node_names)
-    # visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", f"{x}_{child.id}_graph_after_crossover_highlighted.svg", highlight_nodes=new_node_names)
+    visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", f"{x}_{child.id}_graph_after_crossover_highlighted.svg", highlight_nodes=new_node_names)
 
 def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     """
@@ -63,9 +62,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
         A tuple of the candidate nodes, input boundary nodes, and output boundary nodes.
     """
     all_nodes = list(graph_module.graph.nodes)
-    # anchor_node = random.choice(all_nodes)
-    # Pick the middle node
-    anchor_node = all_nodes[len(all_nodes) // 2]
+    anchor_node = random.choice(all_nodes)
     while not _is_allowed_subgraph_node_type(anchor_node):
         print("WARNING: picked node with non-allowed type or name:", anchor_node.op, anchor_node.name)
         anchor_node = random.choice(all_nodes)
@@ -359,10 +356,11 @@ def insert_subgraph(
     try:
         ShapeProp(target_graph_module).propagate(target_graph_module.example_input)
     except Exception as e:
+        traceback.print_exc()
         print("WARNING: error propagating shapes", e)
         print("\nTarget graph nodes with shapes:")
         for node in target_graph_module.graph.nodes:
-            if hasattr(node, "meta") and "tensor_meta" in node.meta:
+            if hasattr(node, "meta") and "tensor_meta" in node.meta and hasattr(node.meta["tensor_meta"], "shape"):
                 print(f"{node.name}: {node.meta['tensor_meta'].shape}")
             else:
                 print(f"{node.name}: No shape info")
@@ -396,7 +394,7 @@ def _insert_node(target_graph: torch.fx.GraphModule, after_node: torch.fx.Node, 
     def _insert_call(func, target):
         with target_graph.graph.inserting_after(after_node):
             new_node = func(target, args=new_args, kwargs=node.kwargs)
-            new_node.meta["tensor_meta"] = node.meta["tensor_meta"]
+            # new_node.meta["tensor_meta"] = node.meta["tensor_meta"]  # TODO is this necessary if we're doing shape propagation after anyway?
             return new_node
 
     if node.op == "call_module":

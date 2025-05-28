@@ -66,16 +66,7 @@ class Evolution:
             while len(new_children) < self.num_children_per_generation:
                 parent1, parent2 = random.sample(self.population, 2)  # TODO should this sample with or without replacement?
                 if random.random() < self.crossover_instead_of_mutation_rate:
-                    try:
-                        child = self._crossover(parent1, parent2)
-                    except Exception as e:
-                        # list of nodes in child
-                        childnodes = [i for i in child.graph_module.graph.nodes]
-                        p1nodes = [i for i in parent1.graph_module.graph.nodes]
-                        p2nodes = [i for i in parent2.graph_module.graph.nodes]
-                        print(childnodes)
-                        # print(p1nodes)
-                        # print(p2nodes)
+                    child = self._crossover(parent1, parent2)
                 else:
                     child = self._mutate(copy.deepcopy(parent1))
                 child.id = self.id_counter
@@ -89,11 +80,6 @@ class Evolution:
                     print(child.graph_module.graph)
                 self.id_counter += 1
                 new_children.append(child)
-                # parent2.fitness = self.fitness_fn(parent2)  # TODO remove this
-                # print("RAN PARENT FITNESS")
-                print('PARENT 2')
-                print(parent2)
-
 
             self.population.extend(new_children)
 
