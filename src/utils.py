@@ -255,51 +255,58 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     if current_size == target_size:
         return graph, node
     
-    if len(current_size) == 1:
-        # For 1D tensors, directly adapt the size
+    current_dims = len(current_size)
+    target_dims = len(target_size)
+    
+    # Handle 1D to 1D case directly
+    if current_dims == 1 and target_dims == 1:
         return adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user)
     
-    elif len(current_size) > 1:
-        # calculate total size of target shape by multiplying all feature dimensions
-        target_total = math.prod(target_size)
-        current_total = math.prod(current_size)
-
-        if target_total == current_total:
-            # If total elements are the same, just reshape
-            graph, reshape_node = add_specific_node(
-                graph,
-                node,
-                lambda x: x.reshape(-1, *target_size),
-                target_user=target_user
-            )
-            return graph, reshape_node
-
-        # Add flatten node
-        graph, flatten_node = add_specific_node(
+    # Calculate total elements
+    current_total = math.prod(current_size)
+    target_total = math.prod(target_size)
+    
+    # If total elements are the same, just reshape and return
+    if current_total == target_total:
+        graph, reshape_node = add_specific_node(
+            graph,
+            node,
+            lambda x: x.reshape(-1, *target_size),
+            target_user=target_user
+        )
+        return graph, reshape_node
+    
+    # Start with the original node
+    current_node = node
+    
+    # Step 1: Flatten if starting from multi-dimensional (2+:1 or 2+:2+)
+    if current_dims > 1:
+        graph, current_node = add_specific_node(
             graph, 
-            node, 
+            current_node, 
             nn.Flatten(start_dim=1, end_dim=-1),
-            target_user=target_user  # Intermediate node
+            target_user=target_user
         )
-
-        # Adapt the flattened tensor
-        graph, adapted_node = adapt_tensor_size(
+    
+    # Step 2: Adapt tensor size (total elements differ, so this is always needed)
+    graph, current_node = adapt_tensor_size(
+        graph, 
+        current_node, 
+        current_total, 
+        target_total, 
+        target_user=target_user
+    )
+    
+    # Step 3: Unflatten if ending with multi-dimensional (1:2+ or 2+:2+)
+    if target_dims > 1:
+        graph, current_node = add_specific_node(
             graph, 
-            flatten_node, 
-            current_total, 
-            target_total, 
-            target_user=target_user  # Intermediate node
-        )
-
-        # Add unflatten node
-        graph, unflatten_node = add_specific_node(
-            graph, 
-            adapted_node, 
+            current_node, 
             nn.Unflatten(dim=1, unflattened_size=target_size),
-            target_user=target_user  # Final node
+            target_user=target_user
         )
-
-        return graph, unflatten_node
+    
+    return graph, current_node
 
 def add_branch_nodes(graph: IndividualGraphModule, reference_node, branch1_module, branch2_module):
     """
