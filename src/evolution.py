@@ -106,13 +106,7 @@ class Evolution:
             Child
         """
         print(f"Crossover between {parent1.id} and {parent2.id}")
-        try:
-            child = copy.deepcopy(parent1)
-        except Exception as e:
-            print(parent1.graph_module.graph)
-            from src.visualization import visualize_graph
-            visualize_graph(parent1.graph_module, "failed_deepcopy", f"{parent1.id}_failed_deepcopy.svg")
-            raise e
+        child = copy.deepcopy(parent1)
         for crossover_fn, probability in self.crossover_fns_and_probabilities:
             if random.random() < probability:
                 print(f"Crossover between {parent1.id} and {parent2.id} with {crossover_fn.__name__}")
