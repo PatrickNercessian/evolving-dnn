@@ -65,11 +65,24 @@ class Evolution:
             new_children = []
             while len(new_children) < self.num_children_per_generation:
                 parent1, parent2 = random.sample(self.population, 2)  # TODO should this sample with or without replacement?
-                if random.random() < self.crossover_instead_of_mutation_rate:
-                    child = self._crossover(parent1, parent2)
-                else:
-                    child = self._mutate(copy.deepcopy(parent1))
+                try:
+                    if random.random() < self.crossover_instead_of_mutation_rate:
+                        child = self._crossover(parent1, parent2)
+                    else:
+                        child = self._mutate(copy.deepcopy(parent1))
+                    successful_child = True
+                except Exception as e:
+                    print(f"Error in crossover or mutation: {e}")
+                    traceback.print_exc()
+                    child.fitness = float('-inf')
+                    successful_child = False
                 child.id = self.id_counter
+                self.id_counter += 1
+                new_children.append(child)
+
+                if not successful_child:
+                    continue
+
                 try:
                     child.fitness = self.fitness_fn(child)
                 except Exception as e:
@@ -78,8 +91,6 @@ class Evolution:
                     traceback.print_exc()
                     child.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
                     print(child.graph_module.graph)
-                self.id_counter += 1
-                new_children.append(child)
 
             self.population.extend(new_children)
 
