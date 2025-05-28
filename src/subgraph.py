@@ -1,12 +1,15 @@
 from collections import deque, defaultdict
 import random
 import copy
+import traceback
 
 import torch
 
 from src.individual import Individual
 from src.utils import adapt_node_shape, get_unique_name
 from src.visualization import visualize_graph
+
+from torch.fx.passes.shape_prop import ShapeProp
 
 MAX_BOUNDARY_NODES = 10
 MIN_NODES = 4
@@ -21,7 +24,7 @@ def crossover_subgraph(child: Individual, parent: Individual):
             num_nodes = random.randint(MIN_NODES, MAX_NODES)
             subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(parent.graph_module, num_nodes)
             num_boundary_nodes = len(input_boundary_nodes) + len(output_boundary_nodes)
-            if num_boundary_nodes <= MAX_BOUNDARY_NODES and len(subgraph_nodes) > MIN_NODES and num_boundary_nodes < lowest_num_boundary_nodes:
+            if num_boundary_nodes <= MAX_BOUNDARY_NODES and len(subgraph_nodes) >= MIN_NODES and num_boundary_nodes < lowest_num_boundary_nodes:
                 input_mapping, topo_target_input_nodes, output_mapping = find_subgraph_connections(child.graph_module.graph, input_boundary_nodes, output_boundary_nodes)
                 lowest_num_boundary_nodes = num_boundary_nodes
 
@@ -296,14 +299,14 @@ def insert_subgraph(
                 new_module_name=new_module_name,
                 new_attr_name=new_attr_name
             )
-
+            
             # Adapt shape if needed
             for j, target_input in enumerate(target_inputs):
                 target_graph_module, _ = adapt_node_shape(
                     target_graph_module,
                     node=target_input,
-                    current_size=target_input.meta["tensor_meta"].shape,
-                    target_size=node.args[j].meta["tensor_meta"].shape,
+                    current_size=target_input.meta["tensor_meta"].shape[1:],
+                    target_size=node.args[j].meta["tensor_meta"].shape[1:],
                     target_user=new_node
                 )
         else:
@@ -339,8 +342,8 @@ def insert_subgraph(
             target_graph_module, _ = adapt_node_shape(
                 target_graph_module,
                 node=new_out_node,
-                current_size=sub_out.meta["tensor_meta"].shape,
-                target_size=first_arg_shape,
+                current_size=sub_out.meta["tensor_meta"].shape[1:],
+                target_size=first_arg_shape[1:],
                 target_user=user
             )
 
@@ -348,6 +351,20 @@ def insert_subgraph(
     
     target_graph_module.graph.lint()
     target_graph_module.recompile()
+
+    # Shape propagation
+    try:
+        ShapeProp(target_graph_module).propagate(target_graph_module.example_input)
+    except Exception as e:
+        traceback.print_exc()
+        print("WARNING: error propagating shapes", e)
+        print("\nTarget graph nodes with shapes:")
+        for node in target_graph_module.graph.nodes:
+            if hasattr(node, "meta") and "tensor_meta" in node.meta and hasattr(node.meta["tensor_meta"], "shape"):
+                print(f"{node.name}: {node.meta['tensor_meta'].shape}")
+            else:
+                print(f"{node.name}: No shape info")
+
     return target_graph_module, new_node_names
 
 def _kanh_algo(subgraph_nodes: set[torch.fx.Node]) -> list[torch.fx.Node]:
@@ -376,7 +393,9 @@ def _insert_node(target_graph: torch.fx.GraphModule, after_node: torch.fx.Node, 
     # print("inserting after", after_node)
     def _insert_call(func, target):
         with target_graph.graph.inserting_after(after_node):
-            return func(target, args=new_args, kwargs=node.kwargs)
+            new_node = func(target, args=new_args, kwargs=node.kwargs)
+            # new_node.meta["tensor_meta"] = node.meta["tensor_meta"]  # TODO is this necessary if we're doing shape propagation after anyway?
+            return new_node
 
     if node.op == "call_module":
         return _insert_call(target_graph.graph.call_module, new_module_name if new_module_name else node.target)

@@ -80,9 +80,7 @@ class Evolution:
                     print(child.graph_module.graph)
                 self.id_counter += 1
                 new_children.append(child)
-                parent2.fitness = self.fitness_fn(parent2)  # TODO remove this
-                print("RAN PARENT FITNESS")
-            
+
             self.population.extend(new_children)
 
     def _selection(self) -> list[Individual]:
@@ -113,11 +111,14 @@ class Evolution:
         except Exception as e:
             print(parent1.graph_module.graph)
             raise e
-        parent2_copy = copy.deepcopy(parent2)  # TODO remove this, it shouldn't be necessary, parent2 should not be modified at all, but it is for some reason during subgraph crossover
+        # parent2_copy = copy.deepcopy(parent2)  # TODO remove this, it shouldn't be necessary, parent2 should not be modified at all, but it is for some reason during subgraph crossover
         for crossover_fn, probability in self.crossover_fns_and_probabilities:
             if random.random() < probability:
                 print(f"Crossover between {parent1.id} and {parent2.id} with {crossover_fn.__name__}")
-                crossover_fn(child, parent2_copy)
+                # crossover_fn(child, parent2_copy)
+                # print(parent2)
+                crossover_fn(child, parent2)
+                # print(parent2)
         return child
 
     def _mutate(self, individual: Individual) -> Individual:
