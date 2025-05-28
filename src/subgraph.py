@@ -395,9 +395,7 @@ def _insert_node(target_graph: torch.fx.GraphModule, after_node: torch.fx.Node, 
     # print("inserting after", after_node)
     def _insert_call(func, target):
         with target_graph.graph.inserting_after(after_node):
-            new_node = func(target, args=new_args, kwargs=node.kwargs)
-            # new_node.meta["tensor_meta"] = node.meta["tensor_meta"]  # TODO is this necessary if we're doing shape propagation after anyway?
-            return new_node
+            return func(target, args=new_args, kwargs=node.kwargs)
 
     if node.op == "call_module":
         return _insert_call(target_graph.graph.call_module, new_module_name if new_module_name else node.target)
