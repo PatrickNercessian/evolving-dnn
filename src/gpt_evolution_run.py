@@ -15,6 +15,7 @@ from src.hyperparam_variation import (
     mutate_learning_rate_scheduler, crossover_learning_rate_scheduler,
     mutate_optimizer_parameters, crossover_optimizer_parameters,
 )
+from src.mutation import mutation_add_linear, mutation_add_relu, mutation_add_skip_connection, mutation_add_branch, mutation_remove_node
 from src.subgraph import crossover_subgraph
 from src.visualization import visualize_graph
 
@@ -37,8 +38,8 @@ if __name__ == '__main__':
 
     train_dataset = TextDataset(data, BLOCK_SIZE)
 
-    TARGET_POPULATION_SIZE = 4
-    NUM_CHILDREN_PER_GENERATION = 4
+    TARGET_POPULATION_SIZE = 10
+    NUM_CHILDREN_PER_GENERATION = 10
 
     gpt_config_params = {
         "block_size": BLOCK_SIZE,
@@ -46,7 +47,7 @@ if __name__ == '__main__':
         "head_bounds": (2, 5),
         "embed_bounds": (128, 512),
     }
-    train_config_params = { "max_iters": 10, "device": "cpu" }
+    train_config_params = { "max_iters": 101, "device": "cpu" }
 
     val_loader = torch.utils.data.DataLoader(
         train_dataset,  # Using same dataset for validation for now
@@ -74,10 +75,16 @@ if __name__ == '__main__':
         fitness_fn=fitness_wrapper,  # Now only takes individual as parameter
         crossover_instead_of_mutation_rate=0.5,
         mutation_fns_and_probabilities=[
-            (mutate_batch_size, 0.3),
-            (mutate_learning_rate, 0.3),
-            (mutate_learning_rate_scheduler, 0.3),
-            (mutate_optimizer_parameters, 0.3),
+            (mutate_batch_size, 0.2),
+            (mutate_learning_rate, 0.2),
+            (mutate_learning_rate_scheduler, 0.2),
+            (mutate_optimizer_parameters, 0.2),
+            (mutation_add_linear, 0.2),
+            (mutation_add_relu, 0.2),
+            (mutation_add_skip_connection, 0.2),
+            (mutation_add_branch, 0.2),
+            (mutation_remove_node, 0.2),
+
         ],
         crossover_fns_and_probabilities=[
             (crossover_subgraph, 0.3),
@@ -90,7 +97,4 @@ if __name__ == '__main__':
         num_children_per_generation=NUM_CHILDREN_PER_GENERATION,
         block_size=BLOCK_SIZE  # TODO this shouldn't be part of the evolution class, not abstracted enough
     )
-    evolution.run_evolution(10)
-
-    for individual in evolution.historical_population:
-        visualize_graph(individual.graph_module, "model_graph_highlighted", f"test1/{individual.id}_graph_highlighted.svg")
+    evolution.run_evolution(10, experiment_name="test3")

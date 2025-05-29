@@ -211,10 +211,10 @@ def add_node(graph: IndividualGraphModule, reference_node: torch.fx.Node, operat
         
     # Fix the connections with clear input/output shape distinction
     adapt_connections(graph, new_node, 
-                     parent_output_shape=ref_feature_shape,  # Use reference node's output shape as parent output
+                     parent_output_shape=reference_node.meta['tensor_meta'].shape,  # Use reference node's output shape as parent output
                      new_node_input_features=new_node_input_shape,
                      new_node_output_features=new_node_output_shape,
-                     child_input_shape=ref_feature_shape)
+                     child_input_shape=reference_node.meta['tensor_meta'].shape)
 
     graph.graph.lint()
     graph.recompile()
@@ -329,6 +329,7 @@ def adapt_connections(
         # Always adapt all dimensions for full compatibility
         if parent_features != new_node_input_features:
             print(f"Parent output features {parent_features} don't match node input features {new_node_input_features}")
+            # Parent output features (128, 239) don't match node input features (2, 128, 239)
             graph, parent_node = adapt_node_shape(graph, new_node.args[0], parent_features, new_node_input_features)
 
     # Handle new-node-to-child connection

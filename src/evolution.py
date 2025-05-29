@@ -1,9 +1,11 @@
 import copy
+import os
 import random
 from typing import Callable
 import traceback
 
 from src.individual import Individual
+from src.visualization import visualize_graph
 
 class Evolution:
     def __init__(
@@ -31,7 +33,7 @@ class Evolution:
             block_size: Block size for the model
         """
         self.population = population
-        self.historical_population = []
+        self.historical_population = copy.copy(population)
         self.fitness_fn = fitness_fn
         self.crossover_instead_of_mutation_rate = crossover_instead_of_mutation_rate
         self.mutation_fns_and_probabilities = mutation_fns_and_probabilities
@@ -44,23 +46,24 @@ class Evolution:
         self.best_individual = None
         self.id_counter = len(self.population)
 
-    def run_evolution(self, num_generations: int):
+    def run_evolution(self, num_generations: int, experiment_name: str|None = None):
         """
         Run the evolutionary process for specified number of generations
         
         Args:
             num_generations: Number of generations to evolve
         """
+
+        if experiment_name:
+            os.makedirs(experiment_name, exist_ok=True)
+
         for individual in self.population:  # evaluate fitness for initial population
             individual.fitness = self.fitness_fn(individual)
         
         for gen in range(num_generations):
             self.generation = gen
-            self._log_generation()
             self._selection()
-            
-            for parent in self.population:  # TODO remove this
-                print(f"Parent {parent.id} has train config {parent.train_config}")
+            self._log_generation(experiment_name)
 
             # Create new population through crossover and mutation
             new_children = []
@@ -79,6 +82,7 @@ class Evolution:
                     child.fitness = float('-inf')
                     successful_child = False
                 child.id = self.id_counter
+                print(f"Created child {child.id}")
                 self.id_counter += 1
                 new_children.append(child)
 
@@ -87,15 +91,23 @@ class Evolution:
 
                 try:
                     child.fitness = self.fitness_fn(child)
+                    if child.fitness == float('nan'):
+                        raise Exception("Fitness is NaN")
                 except Exception as e:
                     import time
                     print(f"Error in fitness function: {e} for child {child.id} at time {time.time()}")
                     traceback.print_exc()
                     child.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
+                    for node in child.graph_module.graph.nodes:
+                        print(f"Node {node.name} has shape:", end=" ")
+                        if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
+                            print(node.meta['tensor_meta'].shape)
+                        else:
+                            print("No shape found")
                     print(child.graph_module.graph)
 
             self.population.extend(new_children)
-            self.historical_population.extend(self.population)
+            self.historical_population.extend(new_children)
 
     def _selection(self) -> list[Individual]:
         """Select individuals for breeding based on fitness scores"""
@@ -142,13 +154,17 @@ class Evolution:
                 mutation_fn(individual)
         return individual
 
-    def _log_generation(self):
+    def _log_generation(self, experiment_name: str|None = None):
         """Log the progress of evolution"""
         current_best_fitness_in_gen = float('-inf')
         current_best_individual_in_gen = None
         fitness_sum = 0
         
         for individual in self.population:
+            print(f"Individual {individual.id} has fitness {individual.fitness}")
+            if experiment_name:
+                visualize_graph(individual.graph_module, "model_graph", f"{experiment_name}/{individual.id}_graph.svg")
+                print(f"Individual {individual.id} has train config {individual.train_config}")
             fitness_sum += individual.fitness
             if individual.fitness > current_best_fitness_in_gen:
                 current_best_fitness_in_gen = individual.fitness
