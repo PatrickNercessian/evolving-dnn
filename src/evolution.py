@@ -52,6 +52,7 @@ class Evolution:
         
         Args:
             num_generations: Number of generations to evolve
+            experiment_name: Name of the experiment
         """
 
         if experiment_name:
@@ -125,8 +126,8 @@ class Evolution:
         Perform crossover between two parents
         
         Args:
-            parent1: First parent
-            parent2: Second parent
+            child: Child individual
+            parent: Parent individual
             
         Returns:
             Child
@@ -138,21 +139,21 @@ class Evolution:
                 crossover_fn(child, parent)
         return child
 
-    def _mutate(self, individual: Individual) -> Individual:
+    def _mutate(self, child: Individual) -> Individual:
         """
         Mutate a single individual
         
         Args:
-            individual: Individual to mutate
+            child: Child individual
             
         Returns:
-            Mutated individual
+            Mutated child individual
         """
-        print(f"Mutating {individual.id}")
+        print(f"Mutating {child.id}")
         for mutation_fn, probability in self.mutation_fns_and_probabilities:
             if random.random() < probability:
-                mutation_fn(individual)
-        return individual
+                mutation_fn(child)
+        return child
 
     def _log_generation(self, experiment_name: str|None = None):
         """Log the progress of evolution"""
