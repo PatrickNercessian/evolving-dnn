@@ -134,6 +134,7 @@ def add_specific_node(graph, reference_node, module_or_function, kwargs=None, ta
     else:
         new_node.args = (reference_node,)
     
+    print(f"Added node {new_node.name} after node {reference_node.name}")
     return graph, new_node
 
 def add_skip_connection(graph, second_node, first_node, torch_function=torch.add):
@@ -395,3 +396,6 @@ def get_feature_dims(shape):
         return tuple(shape[1:])
     else:
         return tuple(shape)
+
+def node_has_shape(node: torch.fx.Node):
+    return "tensor_meta" in node.meta and hasattr(node.meta["tensor_meta"], "shape")
