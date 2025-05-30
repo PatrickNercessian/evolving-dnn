@@ -1,5 +1,7 @@
 import random
 
+import torch
+
 from mingpt.model import GPT
 from mingpt.utils import CfgNode as CN
 
@@ -33,8 +35,9 @@ def generate_initial_population(
         train_config = create_random_train_config(**train_config_params)
         print("model_config", model_config)
         print("train_config", train_config)
-        graph_module = get_graph(GPT(model_config), None)
-        population.append(Individual(IndividualGraphModule(graph_module), train_config, i))
+        example_input = torch.randint(0, model_config.vocab_size, (1, model_config.block_size))
+        graph_module = get_graph(GPT(model_config), example_input=example_input)
+        population.append(Individual(graph_module, train_config, i))
 
     return population
 

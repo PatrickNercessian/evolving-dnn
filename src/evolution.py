@@ -1,6 +1,7 @@
 import copy
 import random
 from typing import Callable
+import traceback
 
 from src.individual import Individual
 
@@ -64,20 +65,34 @@ class Evolution:
             new_children = []
             while len(new_children) < self.num_children_per_generation:
                 parent1, parent2 = random.sample(self.population, 2)  # TODO should this sample with or without replacement?
-                if random.random() < self.crossover_instead_of_mutation_rate:
-                    child = self._crossover(parent1, parent2)
-                else:
-                    child = self._mutate(copy.deepcopy(parent1))
+                child = copy.deepcopy(parent1)
+                try:
+                    if random.random() < self.crossover_instead_of_mutation_rate:
+                        child = self._crossover(child, parent2)
+                    else:
+                        child = self._mutate(child)
+                    successful_child = True
+                except Exception as e:
+                    print(f"Error in crossover or mutation: {e}")
+                    traceback.print_exc()
+                    child.fitness = float('-inf')
+                    successful_child = False
                 child.id = self.id_counter
+                self.id_counter += 1
+                new_children.append(child)
+
+                if not successful_child:
+                    continue
+
                 try:
                     child.fitness = self.fitness_fn(child)
                 except Exception as e:
-                    print(f"Error in fitness function: {e}")
+                    import time
+                    print(f"Error in fitness function: {e} for child {child.id} at time {time.time()}")
+                    traceback.print_exc()
                     child.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
-                    print(child)
-                self.id_counter += 1
-                new_children.append(child)
-            
+                    print(child.graph_module.graph)
+
             self.population.extend(new_children)
 
     def _selection(self) -> list[Individual]:
@@ -91,7 +106,7 @@ class Evolution:
         
         self.population = sorted_population[:self.target_population_size]  # Select top performers as parents
 
-    def _crossover(self, parent1: Individual, parent2: Individual) -> Individual:
+    def _crossover(self, child: Individual, parent: Individual) -> Individual:
         """
         Perform crossover between two parents
         
@@ -102,11 +117,11 @@ class Evolution:
         Returns:
             Child
         """
-        print(f"Crossover between {parent1.id} and {parent2.id}")
-        child = copy.deepcopy(parent1)
+        print(f"Crossover between {child.id} and {parent.id}")
         for crossover_fn, probability in self.crossover_fns_and_probabilities:
             if random.random() < probability:
-                crossover_fn(child, parent2)
+                print(f"Crossover between {child.id} and {parent.id} with {crossover_fn.__name__}")
+                crossover_fn(child, parent)
         return child
 
     def _mutate(self, individual: Individual) -> Individual:

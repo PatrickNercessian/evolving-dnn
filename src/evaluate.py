@@ -1,6 +1,7 @@
 import copy
 
 import torch
+import torch.nn.functional as F
 from mingpt.trainer import Trainer
 
 from src.individual import Individual
@@ -73,7 +74,8 @@ def calculate_perplexity(
             idx, targets = idx.to(device), targets.to(device)
             
             # Forward pass
-            logits, loss = model(idx, targets)
+            logits = model(idx)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
             
             # Accumulate loss (weighted by number of tokens)
             total_loss += loss.item() * targets.numel()

@@ -1,8 +1,9 @@
 import torch.fx
 
 class IndividualGraphModule(torch.fx.GraphModule):
-    def __init__(self, graph_module: torch.fx.GraphModule):
+    def __init__(self, graph_module: torch.fx.GraphModule, example_input: torch.Tensor|None = None):
         super().__init__(graph_module, graph_module.graph)
+        self.example_input = example_input
 
     def configure_optimizers(self, train_config):  # COPIED FROM karpathy/mingpt/model.py
         """
@@ -48,3 +49,9 @@ class IndividualGraphModule(torch.fx.GraphModule):
         ]
         optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
         return optimizer
+
+    def __deepcopy__(self, memo):
+        example_input = self.example_input
+        temp = super().__deepcopy__(memo)
+        temp.example_input = example_input  # this is not a deep copy of the tensor, but it's fine for now
+        return temp
