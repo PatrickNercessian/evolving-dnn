@@ -3,9 +3,9 @@ import os
 import random
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.core import get_graph
-from src.visualization import visualize_graph
-from src.variation.architecture_crossover import random_subgraph, find_subgraph_connections, insert_subgraph
+from src.nn.core import get_graph
+from src.nn.visualization import visualize_graph
+from src.nn.variation.architecture_crossover import random_subgraph, find_subgraph_connections, insert_subgraph
 
 from mingpt.model import GPT
 from mingpt.utils import CfgNode as CN

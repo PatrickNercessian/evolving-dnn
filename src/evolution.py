@@ -1,11 +1,9 @@
 import copy
-import os
 import random
 from typing import Callable
 import traceback
 
 from src.individual import Individual
-from src.visualization import visualize_graph
 
 class Evolution:
     def __init__(
@@ -17,7 +15,7 @@ class Evolution:
         crossover_fns_and_probabilities: list[tuple[Callable[[Individual, Individual], Individual], float]] = [],
         target_population_size: bool = 100,
         num_children_per_generation: int = 100,
-        block_size: int = 128,
+        **kwargs,
     ):
         """
         Initialize the evolution process
@@ -30,7 +28,6 @@ class Evolution:
             crossover_fns_and_probabilities: List of crossover functions and their respective probabilities if crossover occurs
             target_population_size: Population size to maintain after selection
             num_children_per_generation: Number of children to generate per generation
-            block_size: Block size for the model
         """
         self.population = population
         self.historical_population = copy.copy(population)
@@ -40,31 +37,27 @@ class Evolution:
         self.crossover_fns_and_probabilities = crossover_fns_and_probabilities
         self.target_population_size = target_population_size
         self.num_children_per_generation = num_children_per_generation
-        self.block_size = block_size
         self.generation = 0
         self.best_fitness = float('-inf')
         self.best_individual = None
         self.id_counter = len(self.population)
+        self.kwargs = kwargs
 
-    def run_evolution(self, num_generations: int, experiment_name: str|None = None):
+    def run_evolution(self, num_generations: int):
         """
         Run the evolutionary process for specified number of generations
         
         Args:
             num_generations: Number of generations to evolve
-            experiment_name: Name of the experiment
         """
-
-        if experiment_name:
-            os.makedirs(experiment_name, exist_ok=True)
-
         for individual in self.population:  # evaluate fitness for initial population
             individual.fitness = self.fitness_fn(individual)
         
         for gen in range(num_generations):
             self.generation = gen
+            self._log_individuals()
             self._selection()
-            self._log_generation(experiment_name)
+            self._log_generation()
 
             # Create new population through crossover and mutation
             new_children = []
@@ -155,17 +148,18 @@ class Evolution:
                 mutation_fn(child)
         return child
 
-    def _log_generation(self, experiment_name: str|None = None):
+    def _log_individuals(self):  # To likely be overridden by subclass
+        for individual in self.population:
+            print(f"Individual {individual.id} has fitness {individual.fitness}")
+
+    def _log_generation(self):
         """Log the progress of evolution"""
         current_best_fitness_in_gen = float('-inf')
         current_best_individual_in_gen = None
         fitness_sum = 0
         
         for individual in self.population:
-            print(f"Individual {individual.id} has fitness {individual.fitness}")
-            if experiment_name:
-                visualize_graph(individual.graph_module, "model_graph", f"{experiment_name}/{individual.id}_graph.svg")
-                print(f"Individual {individual.id} has train config {individual.train_config}")
+            print(f"Individual {individual.id} survived")
             fitness_sum += individual.fitness
             if individual.fitness > current_best_fitness_in_gen:
                 current_best_fitness_in_gen = individual.fitness

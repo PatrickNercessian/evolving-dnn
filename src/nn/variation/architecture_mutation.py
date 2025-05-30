@@ -6,8 +6,8 @@ import torch.nn as nn
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
-from src.individual_graph_module import IndividualGraphModule
-from src.utils import (
+from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
+from src.nn.variation.utils import (
     node_has_shape, add_specific_node, add_skip_connection,
     adapt_node_shape, add_branch_nodes, get_feature_dims
 )
@@ -186,7 +186,7 @@ def _get_eligible_nodes(individual, nodes=None):
         eligible_nodes.append(node)
     return eligible_nodes
 
-def _add_node(graph: IndividualGraphModule, reference_node: torch.fx.Node, operation: str, **kwargs):
+def _add_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torch.fx.Node, operation: str, **kwargs):
     """
     Adds a new node to the graph after the reference node.
     
@@ -362,7 +362,7 @@ def _add_node(graph: IndividualGraphModule, reference_node: torch.fx.Node, opera
 
     return graph
 
-def _remove_node(graph: IndividualGraphModule, reference_node: torch.fx.Node):
+def _remove_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torch.fx.Node):
     """
     Removes a node from the graph, can't be a skip connection or branch node
     

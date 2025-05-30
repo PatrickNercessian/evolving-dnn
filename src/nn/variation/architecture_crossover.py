@@ -6,9 +6,9 @@ import traceback
 
 import torch
 
-from src.individual import Individual
-from src.utils import adapt_node_shape, get_unique_name, node_has_shape
-from src.visualization import visualize_graph
+from src.nn.individual import NeuralNetworkIndividual
+from src.nn.variation.utils import adapt_node_shape, get_unique_name, node_has_shape
+from src.nn.visualization import visualize_graph
 
 from torch.fx.passes.shape_prop import ShapeProp
 
@@ -19,7 +19,7 @@ MAX_NODES = 32
 CROSSOVER_VISUALIZATION_DIR = "crossover_visualization"
 os.makedirs(CROSSOVER_VISUALIZATION_DIR, exist_ok=True)
 
-def crossover_subgraph(child: Individual, parent: Individual):
+def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndividual):
     subgraph_nodes = set()
     lowest_num_boundary_nodes = float('inf')
     broken_subgraphs = 0
