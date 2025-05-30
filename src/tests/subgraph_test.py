@@ -5,7 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from src.core import get_graph
 from src.visualization import visualize_graph
-from src.subgraph import random_subgraph, find_subgraph_connections, insert_subgraph
+from src.variation.architecture_crossover import random_subgraph, find_subgraph_connections, insert_subgraph
 
 from mingpt.model import GPT
 from mingpt.utils import CfgNode as CN

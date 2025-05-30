@@ -9,14 +9,14 @@ from src.evaluate import calculate_fitness
 from src.individual import Individual
 from src.evolution import Evolution
 from src.dataset import TextDataset
-from src.hyperparam_variation import (
+from src.variation.hyperparam_variation import (
     mutate_batch_size, crossover_batch_size,
     mutate_learning_rate, crossover_learning_rate,
     mutate_learning_rate_scheduler, crossover_learning_rate_scheduler,
     mutate_optimizer_parameters, crossover_optimizer_parameters,
 )
-from src.mutation import mutation_add_linear, mutation_add_relu, mutation_add_skip_connection, mutation_add_branch, mutation_remove_node
-from src.subgraph import crossover_subgraph
+from src.variation.architecture_mutation import mutation_add_linear, mutation_add_relu, mutation_add_skip_connection, mutation_add_branch, mutation_remove_node
+from src.variation.architecture_crossover import crossover_subgraph
 from src.visualization import visualize_graph
 
 import torch
