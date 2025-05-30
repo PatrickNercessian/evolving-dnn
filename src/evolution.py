@@ -55,9 +55,6 @@ class Evolution:
         
         for gen in range(num_generations):
             self.generation = gen
-            self._log_individuals()
-            self._selection()
-            self._log_generation()
 
             # Create new population through crossover and mutation
             new_children = []
@@ -102,6 +99,10 @@ class Evolution:
 
             self.population.extend(new_children)
             self.historical_population.extend(new_children)
+
+            self._log_individuals()
+            self._selection()
+            self._log_generation()
 
     def _selection(self) -> list[Individual]:
         """Select individuals for breeding based on fitness scores"""
