@@ -8,17 +8,17 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from src.visualization import visualize_graph
+from src.nn.visualization import visualize_graph
 
 print("Imports completed")
 
 from src.evolution import Evolution
-from src.individual import Individual
-from src.core import add_node, get_graph, remove_node
-from src.individual_graph_module import IndividualGraphModule
+from src.nn.individual import NeuralNetworkIndividual
+from src.nn.core import add_node, get_graph, remove_node
+from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
 from mingpt.utils import CfgNode as CN
-from src.variation.architecture_crossover import crossover_subgraph
-from src.variation.architecture_mutation import (
+from src.nn.variation.architecture_crossover import crossover_subgraph
+from src.nn.variation.architecture_mutation import (
     mutation_add_linear,
     mutation_add_relu,
     mutation_add_skip_connection,
@@ -177,7 +177,7 @@ def create_initial_population(pop_size=5):
             train_config.num_epochs = 5  # Keep small for quick testing
             
             # Create individual
-            individual = Individual(graph_module, train_config, i)
+            individual = NeuralNetworkIndividual(graph_module, train_config, i)
             population.append(individual)
             print(f"Individual {i} created")
         except Exception as e:
@@ -191,7 +191,7 @@ def create_initial_population(pop_size=5):
                 train_config.learning_rate = 0.0005
                 train_config.batch_size = 64
                 train_config.num_epochs = 5
-                individual = Individual(graph_module, train_config, i)
+                individual = NeuralNetworkIndividual(graph_module, train_config, i)
                 population.append(individual)
                 print(f"Created fallback individual {i}")
             except Exception as e2:

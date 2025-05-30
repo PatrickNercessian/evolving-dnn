@@ -3,7 +3,7 @@ import torch
 
 VOCAB_SIZE = 2000
 
-def bpe(text):
+def bpe(text):  # TODO delete this bad implementation and use the one in mingpt
     dictionary = {}
     # Process each character individually, not just words
     for char in text:

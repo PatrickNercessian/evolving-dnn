@@ -1,8 +1,8 @@
 import copy
 import torch
 import torch.nn as nn
-from src.core import get_graph
-from src.variation.architecture_crossover import random_subgraph, find_subgraph_connections, insert_subgraph
+from src.nn.core import get_graph
+from src.nn.variation.architecture_crossover import random_subgraph, find_subgraph_connections, insert_subgraph
 
 # Slightly more complex model for testing
 class MoreComplexModel(nn.Module):
@@ -107,11 +107,11 @@ def test_subgraph_functions():
     # print(f"Forward pass output: {output}")
 
     # Minimal evolution framework test
-    from src.individual import Individual
+    from src.nn.individual import NeuralNetworkIndividual
     from src.evolution import Evolution
     from mingpt.utils import CfgNode as CN
-    from src.variation.hyperparam_variation import mutate_learning_rate
-    from src.variation.architecture_crossover import crossover_subgraph
+    from src.nn.variation.hyperparam_variation import mutate_learning_rate
+    from src.nn.variation.architecture_crossover import crossover_subgraph
 
     def simple_fitness(ind):
         # Fitness is negative sum of output for a fixed input (just for demonstration)
@@ -127,7 +127,7 @@ def test_subgraph_functions():
         train_config = CN()
         train_config.learning_rate = 0.01
         # Create individual with graph2_mod deepcopy
-        pop.append(Individual(copy.deepcopy(graph1), train_config, i))
+        pop.append(NeuralNetworkIndividual(copy.deepcopy(graph1), train_config, i))
 
     evo = Evolution(
         population=pop,

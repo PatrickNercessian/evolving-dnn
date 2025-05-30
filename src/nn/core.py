@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
-from src.individual_graph_module import IndividualGraphModule
+from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
 
 
 def get_graph(model: nn.Module, input_shape: tuple|None = None, example_input: torch.Tensor|None = None):
@@ -19,9 +19,9 @@ def get_graph(model: nn.Module, input_shape: tuple|None = None, example_input: t
         
     # Symbolically trace the model to get computation graph
     if example_input is not None:
-        graph = IndividualGraphModule(torch.fx.symbolic_trace(model), example_input=example_input)
+        graph = NeuralNetworkIndividualGraphModule(torch.fx.symbolic_trace(model), example_input=example_input)
     else:
-        graph = IndividualGraphModule(torch.fx.symbolic_trace(model))
+        graph = NeuralNetworkIndividualGraphModule(torch.fx.symbolic_trace(model))
     
     # Perform shape propagation if input_shape is provided
     if input_shape is not None and example_input is None:

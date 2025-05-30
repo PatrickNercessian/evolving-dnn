@@ -1,12 +1,10 @@
 import torch
 import torch.nn as nn
 import math
-import torch.nn.functional as F
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
-import random
 
-from src.individual_graph_module import IndividualGraphModule
+from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
 
 
 def find_required_shapes(node):
@@ -173,7 +171,7 @@ def add_skip_connection(graph, second_node, first_node, torch_function=torch.add
 
     return graph, new_node
 
-def adapt_tensor_size(graph, node, current_size: int, target_size: int, target_user=None):
+def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_user=None):
     """
     Helper function to adapt a tensor's size using repeat_interleave, circular padding, or adaptive pooling.
     
@@ -261,7 +259,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     
     # Handle 1D to 1D case directly
     if current_dims == 1 and target_dims == 1:
-        return adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user)
+        return _adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user)
     
     # Calculate total elements
     current_total = math.prod(current_size)
@@ -290,7 +288,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
         )
     
     # Step 2: Adapt tensor size (total elements differ, so this is always needed)
-    graph, current_node = adapt_tensor_size(
+    graph, current_node = _adapt_tensor_size(
         graph, 
         current_node, 
         current_total, 
@@ -309,7 +307,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     
     return graph, current_node
 
-def add_branch_nodes(graph: IndividualGraphModule, reference_node, branch1_module, branch2_module):
+def add_branch_nodes(graph: NeuralNetworkIndividualGraphModule, reference_node, branch1_module, branch2_module):
     """
     Adds two branch nodes in parallel after the reference node and connects them with a skip connection.
     

@@ -1,6 +1,6 @@
 import torch.fx
 
-class IndividualGraphModule(torch.fx.GraphModule):
+class NeuralNetworkIndividualGraphModule(torch.fx.GraphModule):
     def __init__(self, graph_module: torch.fx.GraphModule, example_input: torch.Tensor|None = None):
         super().__init__(graph_module, graph_module.graph)
         self.example_input = example_input
