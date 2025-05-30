@@ -49,6 +49,7 @@ def mutation_add_linear(individual):
     print("Completed mutation_add_linear")
     return individual
 
+def get_graph(model: nn.Module, input_shape: tuple|None = None, example_input: torch.Tensor|None = None):
 
 def mutation_add_relu(individual):
     print("Starting mutation_add_relu")
@@ -86,80 +87,30 @@ def mutation_add_skip_connection(individual):
         print("No eligible later nodes for skip connection")
         return individual
         
-    second_node = random.choice(later_nodes)
-    print(f"Adding skip connection from {first_node.name} to {second_node.name}")
-    
-    # Add skip connection
-    individual.graph_module = _add_node(individual.graph_module, second_node, 'skip', first_node=first_node)
-    print("Completed mutation_add_skip_connection")
-    
-    return individual
-
-
-def mutation_add_branch(individual):
-    print("Starting mutation_add_branch")
-    # Find a random node in the graph to add branches after
-    eligible_nodes = _get_eligible_nodes(individual)
-    
-    if not eligible_nodes:
-        print("No eligible nodes for adding branches")
-        return individual
-    
-    reference_node = random.choice(eligible_nodes)
-    print(f"Adding branch after {reference_node.name}")
-    
-    # Get the shape information from the reference node
-    if hasattr(reference_node, 'meta') and 'tensor_meta' in reference_node.meta:
-        input_shape = reference_node.meta['tensor_meta'].shape
-        input_size = input_shape[-1]
-        # Choose reasonable output sizes for branches
-        branch1_out_size = max(1, input_size // 2)
-        branch2_out_size = max(1, input_size // 2)
+    # Symbolically trace the model to get computation graph
+    if example_input is not None:
+        graph = IndividualGraphModule(torch.fx.symbolic_trace(model), example_input=example_input)
     else:
-        print("Shape information not available, using default sizes")
-        input_size = 8
-        branch1_out_size = 4
-        branch2_out_size = 4
-        
-    # Branch out sizes are random ints
-    branch1_out_size = random.randint(1, 500)
-    branch2_out_size = random.randint(1, 500)
+        graph = IndividualGraphModule(torch.fx.symbolic_trace(model))
     
-    # Add branch nodes
-    individual.graph_module = _add_node(individual.graph_module, reference_node, 'branch',
-                                        branch1_out_size=branch1_out_size,
-                                        branch2_out_size=branch2_out_size)
-    print("Completed mutation_add_branch")
-    
-    return individual
-
-
-def mutation_remove_node(individual):
-    print("Starting mutation_remove_node")
-    # Find eligible nodes to remove (not input, output, or critical nodes)
-    nodes = list(individual.graph_module.graph.nodes)
-    possible_nodes = _get_eligible_nodes(individual, nodes)
-    eligible_nodes = []
-
-    for node in possible_nodes:
-        # Skip placeholder (input) and output nodes
-        if node.op in ['placeholder', 'output']:
-            continue
+    # Perform shape propagation if input_shape is provided
+    if input_shape is not None and example_input is None:
+        # Create example input
+        example_input = torch.randn(input_shape)  # SHAPE NOTE: Using full shape including batch dimension
+        graph.example_input = example_input
         
-        # Skip nodes that are skip connections or branch nodes (as per remove_node restrictions)
-        if hasattr(node, 'target') and node.target in (torch.add, torch.cat, torch.mul):
-            continue
-            
-        # Skip nodes that are the first node in a branch (have multiple users)
-        if len(node.users) > 1:
-            continue
-            
-        # Skip if this is the only non-input/output node (would break the graph)
-        non_io_nodes = [n for n in nodes if n.op not in ['placeholder', 'output']]
-        if len(non_io_nodes) <= 1:
-            continue
-            
-        eligible_nodes.append(node)
+    if example_input is not None:
+        # Get the first node (should be placeholder/input)
+        placeholder = next(iter(graph.graph.nodes))
+        placeholder.meta['tensor_meta'] = {
+            'dtype': example_input.dtype,
+            'shape': example_input.shape,  # SHAPE NOTE: Storing full shape including batch dimension
+            'requires_grad': example_input.requires_grad
+        }
+        
+        # Run shape propagation
+        print("example_input", example_input)
+        ShapeProp(graph).propagate(example_input)  # SHAPE NOTE: Shape propagation uses full shape including batch dimension
     
     if not eligible_nodes:
         print("No eligible nodes for removal")
@@ -186,7 +137,7 @@ def _get_eligible_nodes(individual, nodes=None):
         eligible_nodes.append(node)
     return eligible_nodes
 
-def _add_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torch.fx.Node, operation: str, **kwargs):
+def add_node(graph: IndividualGraphModule, reference_node: torch.fx.Node, operation: str, **kwargs):
     """
     Adds a new node to the graph after the reference node.
     
@@ -362,7 +313,7 @@ def _add_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torch.f
 
     return graph
 
-def _remove_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torch.fx.Node):
+def remove_node(graph: IndividualGraphModule, reference_node: torch.fx.Node):
     """
     Removes a node from the graph, can't be a skip connection or branch node
     

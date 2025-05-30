@@ -6,6 +6,8 @@ from torch.fx.passes.shape_prop import ShapeProp
 
 from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
 
+from src.individual_graph_module import IndividualGraphModule
+
 
 def find_required_shapes(node):
     """
@@ -300,14 +302,16 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     if target_dims > 1:
         graph, current_node = add_specific_node(
             graph, 
-            current_node, 
+            adapted_node, 
             nn.Unflatten(dim=1, unflattened_size=target_size),
-            target_user=target_user
+            target_user=target_user  # Final node
         )
     
     return graph, current_node
 
-def add_branch_nodes(graph: NeuralNetworkIndividualGraphModule, reference_node, branch1_module, branch2_module):
+        return graph, unflatten_node
+
+def add_branch_nodes(graph: IndividualGraphModule, reference_node, branch1_module, branch2_module):
     """
     Adds two branch nodes in parallel after the reference node and connects them with a skip connection.
     

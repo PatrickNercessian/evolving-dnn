@@ -73,7 +73,6 @@ class Evolution:
                     child.fitness = float('-inf')
                     successful_child = False
                 child.id = self.id_counter
-                print(f"Created child {child.id}")
                 self.id_counter += 1
                 new_children.append(child)
 
@@ -89,12 +88,6 @@ class Evolution:
                     print(f"Error in fitness function: {e} for child {child.id} at time {time.time()}")
                     traceback.print_exc()
                     child.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
-                    for node in child.graph_module.graph.nodes:
-                        print(f"Node {node.name} has shape:", end=" ")
-                        if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
-                            print(node.meta['tensor_meta'].shape)
-                        else:
-                            print("No shape found")
                     print(child.graph_module.graph)
 
             self.population.extend(new_children)

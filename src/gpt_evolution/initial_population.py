@@ -36,7 +36,7 @@ def generate_initial_population(
         print("train_config", train_config)
         example_input = torch.randint(0, model_config.vocab_size, (1, model_config.block_size))
         graph_module = get_graph(GPT(model_config), example_input=example_input)
-        population.append(NeuralNetworkIndividual(i, graph_module=graph_module, train_config=train_config))
+        population.append(Individual(graph_module, train_config, i))
 
     return population
 

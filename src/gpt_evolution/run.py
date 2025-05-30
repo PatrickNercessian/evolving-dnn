@@ -3,20 +3,19 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # TODO remove above
 
-from src.nn.bpe import tokenize_string, VOCAB_SIZE
-from src.gpt_evolution.initial_population import generate_initial_population
-from src.nn.evaluate import calculate_fitness
-from src.nn.individual import NeuralNetworkIndividual
-from src.nn.evolution import NeuralNetworkEvolution
-from src.nn.dataset import TextDataset
-from src.nn.variation.hyperparam_variation import (
+from src.bpe import tokenize_string, VOCAB_SIZE
+from src.initial_population import generate_initial_population
+from src.evaluate import calculate_fitness
+from src.individual import Individual
+from src.evolution import Evolution
+from src.dataset import TextDataset
+from src.hyperparam_variation import (
     mutate_batch_size, crossover_batch_size,
     mutate_learning_rate, crossover_learning_rate,
     mutate_learning_rate_scheduler, crossover_learning_rate_scheduler,
     mutate_optimizer_parameters, crossover_optimizer_parameters,
 )
-from src.nn.variation.architecture_mutation import mutation_add_linear, mutation_add_relu, mutation_add_skip_connection, mutation_add_branch, mutation_remove_node
-from src.nn.variation.architecture_crossover import crossover_subgraph
+from src.subgraph import crossover_subgraph
 
 import torch
 import os
@@ -37,8 +36,8 @@ if __name__ == '__main__':
 
     train_dataset = TextDataset(data, BLOCK_SIZE)
 
-    TARGET_POPULATION_SIZE = 5
-    NUM_CHILDREN_PER_GENERATION = 5
+    TARGET_POPULATION_SIZE = 2
+    NUM_CHILDREN_PER_GENERATION = 2
 
     gpt_config_params = {
         "block_size": BLOCK_SIZE,
@@ -76,7 +75,7 @@ if __name__ == '__main__':
             train_config_params,
         ),
         fitness_fn=fitness_wrapper,  # Now only takes individual as parameter
-        crossover_instead_of_mutation_rate=0.5,
+        crossover_instead_of_mutation_rate=1.0,
         mutation_fns_and_probabilities=[
             (mutate_batch_size, 0.2),
             (mutate_learning_rate, 0.2),
@@ -90,11 +89,11 @@ if __name__ == '__main__':
 
         ],
         crossover_fns_and_probabilities=[
-            (crossover_subgraph, 0.3),
-            (crossover_batch_size, 0.3),
-            (crossover_learning_rate, 0.3),
-            (crossover_learning_rate_scheduler, 0.3),
-            (crossover_optimizer_parameters, 0.3),
+            (crossover_subgraph, 1.0),
+            (crossover_batch_size, 0.0),
+            (crossover_learning_rate, 0.0),
+            (crossover_learning_rate_scheduler, 0.0),
+            (crossover_optimizer_parameters, 0.0),
         ],
         target_population_size=TARGET_POPULATION_SIZE,
         num_children_per_generation=NUM_CHILDREN_PER_GENERATION,

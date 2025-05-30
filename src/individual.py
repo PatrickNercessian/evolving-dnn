@@ -6,7 +6,7 @@ class Individual:
             setattr(self, key, value)
 
     def __str__(self):
-        return f"Individual(id={self.id})"
+        return f"Individual(id={self.id}, graph_module={self.graph_module}, train_config={self.train_config})"
 
     def __repr__(self):
         return self.__str__()
