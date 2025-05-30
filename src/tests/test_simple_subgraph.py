@@ -2,7 +2,7 @@ import copy
 import torch
 import torch.nn as nn
 from src.core import get_graph
-from src.subgraph import random_subgraph, find_subgraph_connections, insert_subgraph
+from src.variation.architecture_crossover import random_subgraph, find_subgraph_connections, insert_subgraph
 
 # Slightly more complex model for testing
 class MoreComplexModel(nn.Module):
@@ -110,8 +110,8 @@ def test_subgraph_functions():
     from src.individual import Individual
     from src.evolution import Evolution
     from mingpt.utils import CfgNode as CN
-    from src.hyperparam_variation import mutate_learning_rate
-    from src.subgraph import crossover_subgraph
+    from src.variation.hyperparam_variation import mutate_learning_rate
+    from src.variation.architecture_crossover import crossover_subgraph
 
     def simple_fitness(ind):
         # Fitness is negative sum of output for a fixed input (just for demonstration)
