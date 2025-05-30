@@ -55,17 +55,21 @@ if __name__ == '__main__':
     )
 
     # Create a wrapper for calculate_fitness that only takes individual
-    def fitness_wrapper(individual: Individual) -> float:
+    def fitness_wrapper(individual: NeuralNetworkIndividual) -> float:
         return calculate_fitness(
             individual,
             train_dataset,
             val_loader,
             device=train_config_params["device"],
         )
+    
+    EXPERIMENT_PATH = "experiments/test4"
 
-    evolution = Evolution(
+    os.makedirs(EXPERIMENT_PATH, exist_ok=True)
+
+    evolution = NeuralNetworkEvolution(
         population=generate_initial_population(
-            TARGET_POPULATION_SIZE+NUM_CHILDREN_PER_GENERATION,  # start as if we have a bunch of children in order to perform selection
+            TARGET_POPULATION_SIZE,
             VOCAB_SIZE,
             gpt_config_params,
             train_config_params,
@@ -73,10 +77,16 @@ if __name__ == '__main__':
         fitness_fn=fitness_wrapper,  # Now only takes individual as parameter
         crossover_instead_of_mutation_rate=1.0,
         mutation_fns_and_probabilities=[
-            (mutate_batch_size, 0.3),
-            (mutate_learning_rate, 0.3),
-            (mutate_learning_rate_scheduler, 0.3),
-            (mutate_optimizer_parameters, 0.3),
+            (mutate_batch_size, 0.2),
+            (mutate_learning_rate, 0.2),
+            (mutate_learning_rate_scheduler, 0.2),
+            (mutate_optimizer_parameters, 0.2),
+            (mutation_add_linear, 0.2),
+            (mutation_add_relu, 0.2),
+            (mutation_add_skip_connection, 0.2),
+            (mutation_add_branch, 0.2),
+            (mutation_remove_node, 0.2),
+
         ],
         crossover_fns_and_probabilities=[
             (crossover_subgraph, 1.0),
@@ -87,6 +97,6 @@ if __name__ == '__main__':
         ],
         target_population_size=TARGET_POPULATION_SIZE,
         num_children_per_generation=NUM_CHILDREN_PER_GENERATION,
-        block_size=BLOCK_SIZE  # TODO this shouldn't be part of the evolution class, not abstracted enough
+        experiment_path=EXPERIMENT_PATH,
     )
     evolution.run_evolution(10)

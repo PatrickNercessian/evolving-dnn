@@ -120,7 +120,7 @@ class Trainer:
 if __name__ == "__main__":
     from mingpt.model import GPT
     from mingpt.trainer import Trainer
-    from src.bpe import tokenize_string, VOCAB_SIZE
+    from src.nn.bpe import tokenize_string, VOCAB_SIZE
 
     import torch
     import os

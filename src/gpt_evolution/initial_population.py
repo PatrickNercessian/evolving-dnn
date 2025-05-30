@@ -5,9 +5,8 @@ import torch
 from mingpt.model import GPT
 from mingpt.utils import CfgNode as CN
 
-from src.core import get_graph
-from src.individual import Individual
-from src.individual_graph_module import IndividualGraphModule
+from src.nn.core import get_graph
+from src.nn.individual import NeuralNetworkIndividual
 
 def generate_initial_population(
     population_size: int,

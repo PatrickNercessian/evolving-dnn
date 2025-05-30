@@ -8,15 +8,23 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from src.visualization import visualize_graph
+from src.nn.visualization import visualize_graph
 
 print("Imports completed")
 
 from src.evolution import Evolution
-from src.individual import Individual
-from src.core import add_node, get_graph
-from src.individual_graph_module import IndividualGraphModule
+from src.nn.individual import NeuralNetworkIndividual
+from src.nn.core import add_node, get_graph, remove_node
+from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
 from mingpt.utils import CfgNode as CN
+from src.nn.variation.architecture_crossover import crossover_subgraph
+from src.nn.variation.architecture_mutation import (
+    mutation_add_linear,
+    mutation_add_relu,
+    mutation_add_skip_connection,
+    mutation_add_branch,
+    mutation_remove_node
+)
 
 print("Custom imports completed")
 
@@ -87,160 +95,6 @@ def create_weather_dataset():
     return X, y, scaler_y
 
 print("Weather dataset function defined")
-
-# Define mutation functions
-def mutation_add_linear(individual):
-    print("Starting mutation_add_linear")
-    try:
-        # Find a random node in the graph to add a linear layer after
-        nodes = list(individual.graph_module.graph.nodes)
-        eligible_nodes = [n for n in nodes if n.op != 'output' and n.op != 'placeholder']
-        if not eligible_nodes:
-            print("No eligible nodes for adding linear layer")
-            return individual
-        
-        reference_node = random.choice(eligible_nodes)
-        print(f"Adding linear layer after {reference_node.name}")
-        
-        # Get the output shape of the reference node if available
-        if hasattr(reference_node, 'meta') and 'tensor_meta' in reference_node.meta:
-            input_shape = reference_node.meta['tensor_meta'].shape
-            # Use the feature dimension (last dimension) as input size
-            input_size = input_shape[-1]
-            # Choose a reasonable output size similar to input size
-            output_size = random.randint(max(1, input_size // 2), input_size * 2)
-            print(f"Using input_size={input_size}, output_size={output_size} from reference node shape")
-        else:
-            # Fallback to a safe small size if shape information is not available
-            print("Shape information not available, using default sizes")
-            input_size = 8
-            output_size = 8
-        
-        # Add a linear layer
-        try:
-            individual.graph_module = add_node(individual.graph_module, reference_node, 'linear', 
-                                             input_size=input_size, output_size=output_size)
-        except Exception as e:
-            print(f"Error adding linear layer: {e}")
-            return individual
-        
-        # Adjust training config (you could add learning rate mutation here)
-        if random.random() < 0.3:
-            individual.train_config.learning_rate *= random.uniform(0.5, 1.5)
-            individual.train_config.learning_rate = max(0.0001, min(0.1, individual.train_config.learning_rate))
-        
-        print("Completed mutation_add_linear")
-    except Exception as e:
-        print(f"Unexpected error in mutation_add_linear: {e}")
-        traceback.print_exc()
-    return individual
-
-def mutation_add_relu(individual):
-    print("Starting mutation_add_relu")
-    try:
-        # Find a random node in the graph to add a ReLU layer after
-        nodes = list(individual.graph_module.graph.nodes)
-        eligible_nodes = [n for n in nodes if n.op != 'output' and n.op != 'placeholder']
-        if not eligible_nodes:
-            print("No eligible nodes for adding ReLU")
-            return individual
-        
-        reference_node = random.choice(eligible_nodes)
-        print(f"Adding ReLU after {reference_node.name}")
-        
-        # Add a ReLU layer
-        try:
-            individual.graph_module = add_node(individual.graph_module, reference_node, 'relu')
-            print("Completed mutation_add_relu")
-        except Exception as e:
-            print(f"Error adding ReLU: {e}")
-    except Exception as e:
-        print(f"Unexpected error in mutation_add_relu: {e}")
-        traceback.print_exc()
-    return individual
-
-def mutation_add_skip_connection(individual):
-    print("Starting mutation_add_skip_connection")
-    try:
-        # Find two random nodes in the graph to connect
-        nodes = list(individual.graph_module.graph.nodes)
-        eligible_nodes = [n for n in nodes if n.op != 'output' and n.op != 'placeholder']
-        
-        if len(eligible_nodes) < 2:
-            print("Not enough eligible nodes for skip connection")
-            return individual
-        
-        # Pick two different nodes, ensuring first_node comes before second_node
-        first_node = random.choice(eligible_nodes)
-        later_nodes = [n for n in eligible_nodes if n != first_node and 
-                      list(individual.graph_module.graph.nodes).index(n) > 
-                      list(individual.graph_module.graph.nodes).index(first_node)]
-        
-        if not later_nodes:
-            print("No eligible later nodes for skip connection")
-            return individual
-            
-        second_node = random.choice(later_nodes)
-        print(f"Adding skip connection from {first_node.name} to {second_node.name}")
-        
-        # Add skip connection
-        try:
-            individual.graph_module = add_node(individual.graph_module, second_node, 'skip', first_node=first_node)
-            print("Completed mutation_add_skip_connection")
-        except Exception as e:
-            print(f"Error adding skip connection: {e}")
-            
-    except Exception as e:
-        print(f"Unexpected error in mutation_add_skip_connection: {e}")
-        traceback.print_exc()
-    return individual
-
-def mutation_add_branch(individual):
-    print("Starting mutation_add_branch")
-    try:
-        # Find a random node in the graph to add branches after
-        nodes = list(individual.graph_module.graph.nodes)
-        eligible_nodes = [n for n in nodes if n.op != 'output' and n.op != 'placeholder']
-        
-        if not eligible_nodes:
-            print("No eligible nodes for adding branches")
-            return individual
-        
-        reference_node = random.choice(eligible_nodes)
-        print(f"Adding branch after {reference_node.name}")
-        
-        # Get the shape information from the reference node
-        if hasattr(reference_node, 'meta') and 'tensor_meta' in reference_node.meta:
-            input_shape = reference_node.meta['tensor_meta'].shape
-            input_size = input_shape[-1]
-            # Choose reasonable output sizes for branches
-            branch1_out_size = max(1, input_size // 2)
-            branch2_out_size = max(1, input_size // 2)
-        else:
-            print("Shape information not available, using default sizes")
-            input_size = 8
-            branch1_out_size = 4
-            branch2_out_size = 4
-            
-        # Branch out sizes are random ints
-        branch1_out_size = random.randint(1, 500)
-        branch2_out_size = random.randint(1, 500)
-        
-        # Add branch nodes
-        try:
-            individual.graph_module = add_node(individual.graph_module, reference_node, 'branch',
-                                             branch1_out_size=branch1_out_size,
-                                             branch2_out_size=branch2_out_size)
-            print("Completed mutation_add_branch")
-        except Exception as e:
-            print(f"Error adding branch: {e}")
-            
-    except Exception as e:
-        print(f"Unexpected error in mutation_add_branch: {e}")
-        traceback.print_exc()
-    return individual
-
-print("Mutation functions defined")
 
 # Fitness function - evaluate model performance
 def fitness_function(individual):
@@ -323,7 +177,7 @@ def create_initial_population(pop_size=5):
             train_config.num_epochs = 5  # Keep small for quick testing
             
             # Create individual
-            individual = Individual(graph_module, train_config, i)
+            individual = NeuralNetworkIndividual(graph_module, train_config, i)
             population.append(individual)
             print(f"Individual {i} created")
         except Exception as e:
@@ -337,7 +191,7 @@ def create_initial_population(pop_size=5):
                 train_config.learning_rate = 0.0005
                 train_config.batch_size = 64
                 train_config.num_epochs = 5
-                individual = Individual(graph_module, train_config, i)
+                individual = NeuralNetworkIndividual(graph_module, train_config, i)
                 population.append(individual)
                 print(f"Created fallback individual {i}")
             except Exception as e2:
@@ -514,14 +368,15 @@ def test_evolution():
     evolution = Evolution(
         population=population,
         fitness_fn=fitness_function,
-        crossover_instead_of_mutation_rate=0.0,  # Disable crossover
+        crossover_instead_of_mutation_rate=0.6,
         mutation_fns_and_probabilities=[
             (mutation_add_linear, 0.4),
             (mutation_add_relu, 0.2),
             (mutation_add_skip_connection, 0.2),
             (mutation_add_branch, 0.7),
+            (mutation_remove_node, 0.1),
         ],
-        crossover_fns_and_probabilities=[],  # Empty crossover functions
+        crossover_fns_and_probabilities=[(crossover_subgraph, 0.3)],
         target_population_size=5,
         num_children_per_generation=3,
         block_size=128,

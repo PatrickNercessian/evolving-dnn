@@ -1,6 +1,8 @@
 from torch.fx.passes.graph_drawer import FxGraphDrawer
 
-def visualize_graph(graph, name="model_graph", output_path=None, highlight_nodes=None):
+import torch
+
+def visualize_graph(graph: torch.fx.GraphModule, name="model_graph", output_path=None, highlight_nodes=None):
     """
     Visualizes an FX graph using the FxGraphDrawer, optionally highlighting a subgraph.
     
