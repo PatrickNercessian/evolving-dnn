@@ -70,7 +70,7 @@ if __name__ == '__main__':
 
     evolution = NeuralNetworkEvolution(
         population=generate_initial_population(
-            TARGET_POPULATION_SIZE+NUM_CHILDREN_PER_GENERATION,  # start as if we have a bunch of children in order to perform selection
+            TARGET_POPULATION_SIZE,
             VOCAB_SIZE,
             gpt_config_params,
             train_config_params,
