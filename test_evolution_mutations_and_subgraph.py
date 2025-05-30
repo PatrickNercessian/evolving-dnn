@@ -17,8 +17,8 @@ from src.individual import Individual
 from src.core import add_node, get_graph, remove_node
 from src.individual_graph_module import IndividualGraphModule
 from mingpt.utils import CfgNode as CN
-from src.subgraph import crossover_subgraph
-from src.mutation import (
+from src.variation.architecture_crossover import crossover_subgraph
+from src.variation.architecture_mutation import (
     mutation_add_linear,
     mutation_add_relu,
     mutation_add_skip_connection,

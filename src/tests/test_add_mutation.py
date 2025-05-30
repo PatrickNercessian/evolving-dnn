@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 from src.utils import find_required_shapes 
-from src.modelbank import CausalSelfAttention, simple_linear
+from src.tests.modelbank import CausalSelfAttention, simple_linear
 from src.core import get_graph, add_node, remove_node, adapt_connections
 from src.utils import find_required_shapes
 import random
