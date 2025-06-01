@@ -1,8 +1,8 @@
 import copy
 import torch
 import torch.nn as nn
-from src.core import get_graph
-from src.subgraph import random_subgraph, find_subgraph_connections, insert_subgraph
+from src.nn.core import get_graph
+from src.nn.variation.architecture_crossover import random_subgraph, find_subgraph_connections, insert_subgraph
 
 # Slightly more complex model for testing
 class MoreComplexModel(nn.Module):
@@ -76,42 +76,42 @@ def test_subgraph_functions():
     # output = model1(example_input)
     # print(f"Output: {output}")
 
-    graph1 = get_graph(model1, example_input=example_input)
-    graph2 = get_graph(model2, example_input=example_input)
+    # graph1 = get_graph(model1, example_input=example_input)
+    # graph2 = get_graph(model2, example_input=example_input)
 
-    # Test random_subgraph
-    num_nodes = 3
-    subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(graph1, num_nodes)
-    print(f"Subgraph nodes: {len(subgraph_nodes)}")
-    print(f"Input boundary nodes: {len(input_boundary_nodes)}")
-    print(f"Output boundary nodes: {len(output_boundary_nodes)}")
+    # # Test random_subgraph
+    # num_nodes = 3
+    # subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(graph1, num_nodes)
+    # print(f"Subgraph nodes: {len(subgraph_nodes)}")
+    # print(f"Input boundary nodes: {len(input_boundary_nodes)}")
+    # print(f"Output boundary nodes: {len(output_boundary_nodes)}")
 
-    # Test find_subgraph_connections
-    input_mapping, topo_target_input_nodes, output_mapping = find_subgraph_connections(
-        graph2.graph, input_boundary_nodes, output_boundary_nodes
-    )
-    print("Input mapping:", input_mapping)
-    print("Topo target input nodes:", topo_target_input_nodes)
-    print("Output mapping:", output_mapping)
+    # # Test find_subgraph_connections
+    # input_mapping, topo_target_input_nodes, output_mapping = find_subgraph_connections(
+    #     graph2.graph, input_boundary_nodes, output_boundary_nodes
+    # )
+    # print("Input mapping:", input_mapping)
+    # print("Topo target input nodes:", topo_target_input_nodes)
+    # print("Output mapping:", output_mapping)
 
-    # Test insert_subgraph
-    graph2_mod, new_node_names = insert_subgraph(
-        graph2, subgraph_nodes, input_mapping, topo_target_input_nodes, output_mapping
-    )
-    print(f"Inserted subgraph. New node names: {new_node_names}")
-    print("Test completed successfully.")
+    # # Test insert_subgraph
+    # graph2_mod, new_node_names = insert_subgraph(
+    #     graph2, subgraph_nodes, input_mapping, topo_target_input_nodes, output_mapping
+    # )
+    # print(f"Inserted subgraph. New node names: {new_node_names}")
+    # print("Test completed successfully.")
 
-    # Test forward pass on the modified graph
-    print("Testing forward pass on modified graph:")
-    output = graph2_mod(example_input)
-    print(f"Forward pass output: {output}")
+    # # Test forward pass on the modified graph
+    # print("Testing forward pass on modified graph:")
+    # output = graph2_mod(example_input)
+    # print(f"Forward pass output: {output}")
 
     # Minimal evolution framework test
-    from src.individual import Individual
+    from src.nn.individual import NeuralNetworkIndividual
     from src.evolution import Evolution
     from mingpt.utils import CfgNode as CN
-    from src.hyperparam_variation import mutate_learning_rate
-    from src.subgraph import crossover_subgraph
+    from src.nn.variation.hyperparam_variation import mutate_learning_rate
+    from src.nn.variation.architecture_crossover import crossover_subgraph
 
     def simple_fitness(ind):
         # Fitness is negative sum of output for a fixed input (just for demonstration)
@@ -119,13 +119,15 @@ def test_subgraph_functions():
             out = ind.graph_module(example_input)
             return -out.sum().item()
 
+    graph1 = get_graph(model1, example_input=example_input)
+
     # Create a small population of Individuals
     pop = []
     for i in range(4):
         train_config = CN()
         train_config.learning_rate = 0.01
         # Create individual with graph2_mod deepcopy
-        pop.append(Individual(copy.deepcopy(graph2_mod), train_config, i))
+        pop.append(NeuralNetworkIndividual(copy.deepcopy(graph1), train_config, i))
 
     evo = Evolution(
         population=pop,

@@ -15,7 +15,7 @@ class Evolution:
         crossover_fns_and_probabilities: list[tuple[Callable[[Individual, Individual], Individual], float]] = [],
         target_population_size: bool = 100,
         num_children_per_generation: int = 100,
-        block_size: int = 128,
+        **kwargs,
     ):
         """
         Initialize the evolution process
@@ -28,20 +28,20 @@ class Evolution:
             crossover_fns_and_probabilities: List of crossover functions and their respective probabilities if crossover occurs
             target_population_size: Population size to maintain after selection
             num_children_per_generation: Number of children to generate per generation
-            block_size: Block size for the model
         """
         self.population = population
+        self.historical_population = copy.copy(population)
         self.fitness_fn = fitness_fn
         self.crossover_instead_of_mutation_rate = crossover_instead_of_mutation_rate
         self.mutation_fns_and_probabilities = mutation_fns_and_probabilities
         self.crossover_fns_and_probabilities = crossover_fns_and_probabilities
         self.target_population_size = target_population_size
         self.num_children_per_generation = num_children_per_generation
-        self.block_size = block_size
         self.generation = 0
         self.best_fitness = float('-inf')
         self.best_individual = None
         self.id_counter = len(self.population)
+        self.kwargs = kwargs
 
     def run_evolution(self, num_generations: int):
         """
@@ -55,11 +55,6 @@ class Evolution:
         
         for gen in range(num_generations):
             self.generation = gen
-            self._log_generation()
-            self._selection()
-            
-            for parent in self.population:  # TODO remove this
-                print(f"Parent {parent.id} has train config {parent.train_config}")
 
             # Create new population through crossover and mutation
             new_children = []
@@ -78,6 +73,7 @@ class Evolution:
                     child.fitness = float('-inf')
                     successful_child = False
                 child.id = self.id_counter
+                print(f"Created child {child.id}")
                 self.id_counter += 1
                 new_children.append(child)
 
@@ -86,14 +82,27 @@ class Evolution:
 
                 try:
                     child.fitness = self.fitness_fn(child)
+                    if child.fitness == float('nan'):
+                        raise Exception("Fitness is NaN")
                 except Exception as e:
                     import time
                     print(f"Error in fitness function: {e} for child {child.id} at time {time.time()}")
                     traceback.print_exc()
                     child.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
+                    for node in child.graph_module.graph.nodes:
+                        print(f"Node {node.name} has shape:", end=" ")
+                        if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
+                            print(node.meta['tensor_meta'].shape)
+                        else:
+                            print("No shape found")
                     print(child.graph_module.graph)
 
             self.population.extend(new_children)
+            self.historical_population.extend(new_children)
+
+            self._log_individuals()
+            self._selection()
+            self._log_generation()
 
     def _selection(self) -> list[Individual]:
         """Select individuals for breeding based on fitness scores"""
@@ -111,8 +120,8 @@ class Evolution:
         Perform crossover between two parents
         
         Args:
-            parent1: First parent
-            parent2: Second parent
+            child: Child individual
+            parent: Parent individual
             
         Returns:
             Child
@@ -124,21 +133,25 @@ class Evolution:
                 crossover_fn(child, parent)
         return child
 
-    def _mutate(self, individual: Individual) -> Individual:
+    def _mutate(self, child: Individual) -> Individual:
         """
         Mutate a single individual
         
         Args:
-            individual: Individual to mutate
+            child: Child individual
             
         Returns:
-            Mutated individual
+            Mutated child individual
         """
-        print(f"Mutating {individual.id}")
+        print(f"Mutating {child.id}")
         for mutation_fn, probability in self.mutation_fns_and_probabilities:
             if random.random() < probability:
-                mutation_fn(individual)
-        return individual
+                mutation_fn(child)
+        return child
+
+    def _log_individuals(self):  # To likely be overridden by subclass
+        for individual in self.population:
+            print(f"Individual {individual.id} has fitness {individual.fitness}")
 
     def _log_generation(self):
         """Log the progress of evolution"""
@@ -147,6 +160,7 @@ class Evolution:
         fitness_sum = 0
         
         for individual in self.population:
+            print(f"Individual {individual.id} survived")
             fitness_sum += individual.fitness
             if individual.fitness > current_best_fitness_in_gen:
                 current_best_fitness_in_gen = individual.fitness

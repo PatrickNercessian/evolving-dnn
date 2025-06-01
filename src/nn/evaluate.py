@@ -4,12 +4,12 @@ import torch
 import torch.nn.functional as F
 from mingpt.trainer import Trainer
 
-from src.individual import Individual
+from src.nn.individual import NeuralNetworkIndividual
 
 TOTAL_BATCHES_FOR_EVALUATION = 20
 
 def calculate_fitness(
-    individual: Individual,
+    individual: NeuralNetworkIndividual,
     train_dataset: torch.utils.data.Dataset,
     val_data_loader: torch.utils.data.DataLoader,
     num_train_steps: int = 100,

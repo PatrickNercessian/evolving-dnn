@@ -1,13 +1,14 @@
 from collections import deque, defaultdict
 import random
 import copy
+import os
 import traceback
 
 import torch
 
-from src.individual import Individual
-from src.utils import adapt_node_shape, get_unique_name
-from src.visualization import visualize_graph
+from src.nn.individual import NeuralNetworkIndividual
+from src.nn.variation.utils import adapt_node_shape, get_unique_name, node_has_shape
+from src.nn.visualization import visualize_graph
 
 from torch.fx.passes.shape_prop import ShapeProp
 
@@ -15,7 +16,10 @@ MAX_BOUNDARY_NODES = 10
 MIN_NODES = 4
 MAX_NODES = 32
 
-def crossover_subgraph(child: Individual, parent: Individual):
+CROSSOVER_VISUALIZATION_DIR = "crossover_visualization"
+os.makedirs(CROSSOVER_VISUALIZATION_DIR, exist_ok=True)
+
+def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndividual):
     subgraph_nodes = set()
     lowest_num_boundary_nodes = float('inf')
     broken_subgraphs = 0
@@ -44,11 +48,11 @@ def crossover_subgraph(child: Individual, parent: Individual):
 
     # Visualize the graph with the subgraph highlighted
     x = random.randint(0, 1000000)
-    visualize_graph(parent.graph_module, "model_graph_highlighted", f"{x}_{parent.id}_graph_highlighted.svg", highlight_nodes=subgraph_node_names)
+    visualize_graph(parent.graph_module, "model_graph_highlighted", f"{CROSSOVER_VISUALIZATION_DIR}/{x}_{parent.id}_graph_highlighted.svg", highlight_nodes=subgraph_node_names)
 
     child.graph_module, new_node_names = insert_subgraph(child.graph_module, **insert_subgraph_kwargs)
 
-    visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", f"{x}_{child.id}_graph_after_crossover_highlighted.svg", highlight_nodes=new_node_names)
+    visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", f"{CROSSOVER_VISUALIZATION_DIR}/{x}_{child.id}_graph_after_crossover_highlighted.svg", highlight_nodes=new_node_names)
 
 def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     """
@@ -94,7 +98,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
             if isinstance(arg, torch.fx.Node):
                 if arg in subgraph_nodes:
                     input_mapping[node].append(arg)
-                elif _node_has_shape(arg):
+                elif node_has_shape(arg):
                     input_mapping[node].append(None)  # placeholder for target graph replacement arg
                 else:  # if neighbor node and has no shape, add it to the subgraph
                     _add_to_subgraph(arg)
@@ -107,7 +111,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
         for user_node in node.users:
             if user_node in subgraph_nodes:
                 output_mapping[node].append(user_node)
-            elif _node_has_shape(user_node):
+            elif node_has_shape(user_node):
                 output_mapping[node].append(None)  # placeholder for target graph replacement user
             else:  # if neighbor node and has no shape, add it to the subgraph
                 _add_to_subgraph(user_node)
@@ -115,7 +119,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
         if all(user_node is not None for user_node in output_mapping[node]):
             del output_mapping[node]  # if all node outputs are in the subgraph, we don't need to keep the mapping
 
-        if (node in input_mapping or node in output_mapping) and not _node_has_shape(node):
+        if (node in input_mapping or node in output_mapping) and not node_has_shape(node):
             if node in input_mapping:
                 del input_mapping[node]
                 for arg in node.all_input_nodes:
@@ -157,7 +161,7 @@ def find_subgraph_connections(
             return False
             
         # Check tensor metadata
-        if not _node_has_shape(node1) or not _node_has_shape(node2):
+        if not node_has_shape(node1) or not node_has_shape(node2):
             return False
         
         if node1.meta["tensor_meta"].dtype != node2.meta["tensor_meta"].dtype:
@@ -187,9 +191,6 @@ def find_subgraph_connections(
         target_input_nodes=set(node for nodes in input_mapping.values() for node in nodes)
     )
     return input_mapping, topo_target_input_nodes, output_mapping
-
-def _node_has_shape(node: torch.fx.Node):
-    return "tensor_meta" in node.meta and hasattr(node.meta["tensor_meta"], "shape")
 
 def _select_random_mapping(
     boundary_nodes: dict[torch.fx.Node, list[torch.fx.Node|None]],
