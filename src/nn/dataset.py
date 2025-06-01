@@ -12,4 +12,4 @@ class TextDataset(torch.utils.data.Dataset):
         # return a chunk of data and the next token as target
         x = self.data[idx:idx + self.block_size]
         y = self.data[idx + 1:idx + self.block_size + 1]
-        return x, y 
+        return x, y

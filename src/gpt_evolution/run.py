@@ -3,7 +3,6 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # TODO remove above
 
-from src.nn.bpe import tokenize_string, VOCAB_SIZE
 from src.gpt_evolution.initial_population import generate_initial_population
 from src.nn.evaluate import calculate_fitness
 from src.nn.individual import NeuralNetworkIndividual
@@ -19,19 +18,30 @@ from src.nn.variation.architecture_mutation import mutation_add_linear, mutation
 from src.nn.variation.architecture_crossover import crossover_subgraph
 
 import torch
-import os
+from tokenizers import Tokenizer
+from tokenizers.models import BPE
+from tokenizers.trainers import BpeTrainer
+from tokenizers.pre_tokenizers import Whitespace
+
+VOCAB_SIZE = 2000
 
 if __name__ == '__main__':
-    print("Starting GPT evolution run")
-
-    if os.path.exists('tokenized_data.pt'):
-        data = torch.load('tokenized_data.pt')  # Save the tokenized data tensor to a file
+    if os.path.exists("tokenizer.json"):
+        tokenizer = Tokenizer.from_file("tokenizer.json")
     else:
-        # Load, tokenize and save the input text
-        with open('mingpt/input.txt', 'r', encoding='utf-8') as f:
-            text = f.read()
-        data = tokenize_string(text)
-        torch.save(data, 'tokenized_data.pt')
+        tokenizer = Tokenizer(BPE())
+        tokenizer.pre_tokenizer = Whitespace()
+        tokenizer.train(['mingpt/input.txt'], trainer=BpeTrainer(vocab_size=VOCAB_SIZE))
+        tokenizer.save("tokenizer.json")
+
+    output = tokenizer.encode("Hey how are you?")
+    print(output.tokens)
+
+    with open('mingpt/input.txt', 'r', encoding='utf-8') as f:
+        text = f.read()
+    encoded_text = tokenizer.encode(text)
+    print(encoded_text.tokens[:100])
+    data = torch.tensor(encoded_text.ids)
 
     BLOCK_SIZE = 128
 
@@ -64,7 +74,7 @@ if __name__ == '__main__':
             device=train_config_params["device"],
         )
     
-    EXPERIMENT_PATH = "experiments/test4"
+    EXPERIMENT_PATH = "experiments/test5"
 
     os.makedirs(EXPERIMENT_PATH, exist_ok=True)
 
@@ -100,4 +110,4 @@ if __name__ == '__main__':
         num_children_per_generation=NUM_CHILDREN_PER_GENERATION,
         experiment_path=EXPERIMENT_PATH,
     )
-    evolution.run_evolution(10)
+    evolution.run_evolution(3)
