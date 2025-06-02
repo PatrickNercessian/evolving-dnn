@@ -4,6 +4,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # TODO remove above
 
 from src.gpt_evolution.initial_population import generate_initial_population
+from src.gpt_evolution.helpers import set_random_seeds
 from src.nn.evaluate import calculate_fitness
 from src.nn.individual import NeuralNetworkIndividual
 from src.nn.evolution import NeuralNetworkEvolution
@@ -24,8 +25,11 @@ from tokenizers.trainers import BpeTrainer
 from tokenizers.pre_tokenizers import Whitespace
 
 VOCAB_SIZE = 2000
+RANDOM_SEED = 42
 
 if __name__ == '__main__':
+    set_random_seeds(RANDOM_SEED)
+
     if os.path.exists("tokenizer.json"):
         tokenizer = Tokenizer.from_file("tokenizer.json")
     else:
