@@ -1,4 +1,5 @@
 import copy
+import math
 import random
 from typing import Callable
 import traceback
@@ -60,7 +61,7 @@ class Evolution:
             new_children = []
             while len(new_children) < self.num_children_per_generation:
                 parent1, parent2 = random.sample(self.population, 2)  # TODO should this sample with or without replacement?
-                child = copy.deepcopy(parent1)
+                child = self._copy_individual(parent1)
                 try:
                     if random.random() < self.crossover_instead_of_mutation_rate:
                         child = self._crossover(child, parent2)
@@ -82,8 +83,6 @@ class Evolution:
 
                 try:
                     child.fitness = self.fitness_fn(child)
-                    if child.fitness == float('nan'):
-                        raise Exception("Fitness is NaN")
                 except Exception as e:
                     import time
                     print(f"Error in fitness function: {e} for child {child.id} at time {time.time()}")
@@ -104,16 +103,11 @@ class Evolution:
             self._selection()
             self._log_generation()
 
-    def _selection(self) -> list[Individual]:
-        """Select individuals for breeding based on fitness scores"""
-        # Sort population by fitness
-        sorted_population = sorted(
-            self.population,
-            key=lambda individual: individual.fitness,
-            reverse=True
-        )
-        
-        self.population = sorted_population[:self.target_population_size]  # Select top performers as parents
+    def _copy_individual(self, individual: Individual) -> Individual:
+        """
+        Copy an individual
+        """
+        return copy.deepcopy(individual)
 
     def _crossover(self, child: Individual, parent: Individual) -> Individual:
         """
@@ -148,6 +142,18 @@ class Evolution:
             if random.random() < probability:
                 mutation_fn(child)
         return child
+    
+    def _selection(self) -> list[Individual]:
+        """Select individuals for breeding based on fitness scores"""
+        # Sort population by fitness
+        sorted_population = sorted(
+            self.population,
+            key=lambda individual: (not math.isnan(individual.fitness), individual.fitness),
+            reverse=True
+        )
+        
+        self.population = sorted_population[:self.target_population_size]  # Select top performers as parents
+
 
     def _log_individuals(self):  # To likely be overridden by subclass
         for individual in self.population:

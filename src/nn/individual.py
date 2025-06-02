@@ -1,6 +1,6 @@
 from mingpt.utils import CfgNode as CN
+import copy
 
-from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
 from src.individual import Individual
 
 class NeuralNetworkIndividual(Individual):
@@ -17,6 +17,6 @@ class NeuralNetworkIndividual(Individual):
     def __deepcopy__(self, memo):
         return NeuralNetworkIndividual(
             self.id,
-            graph_module=self.graph_module.__deepcopy__(memo),
-            train_config=self.train_config.__deepcopy__(memo),
+            graph_module=copy.deepcopy(self.graph_module, memo),
+            train_config=copy.deepcopy(self.train_config, memo),
         )
