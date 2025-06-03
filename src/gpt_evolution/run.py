@@ -1,4 +1,5 @@
 import os
+import argparse
 
 import json
 import logging
@@ -31,7 +32,16 @@ VOCAB_SIZE = 2000
 RANDOM_SEED = 42
 
 if __name__ == '__main__':
-    with open('src/gpt_evolution/default_run_config.json', 'r') as f:
+    parser = argparse.ArgumentParser(description="Run GPT Evolution experiment.")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="src/gpt_evolution/default_run_config.json",
+        help="Path to the run configuration JSON file."
+    )
+    args = parser.parse_args()
+
+    with open(args.config, 'r') as f:
         run_config = json.load(f)
 
     tokenizer_config = run_config["tokenizer"]
