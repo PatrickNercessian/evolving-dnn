@@ -76,9 +76,6 @@ if __name__ == '__main__':
 
     train_dataset = TextDataset(data, gpt_config["block_size"])
 
-    TARGET_POPULATION_SIZE = 5
-    NUM_CHILDREN_PER_GENERATION = 5
-
     train_config_params = {
         "max_iters": training_config["max_iters"],
         "device": training_config["device"],
@@ -102,12 +99,12 @@ if __name__ == '__main__':
 
     evolution = NeuralNetworkEvolution(
         population=generate_initial_population(
-            TARGET_POPULATION_SIZE,
-            VOCAB_SIZE,
+            evolution_config["target_population_size"],
+            tokenizer_config["vocab_size"],
             gpt_config,
             train_config_params,
         ),
-        fitness_fn=fitness_wrapper,  # Now only takes individual as parameter
+        fitness_fn=fitness_wrapper,
         crossover_instead_of_mutation_rate=evolution_config["crossover_instead_of_mutation_rate"],
         mutation_fns_and_probabilities=[  # These need to be imported above for it to work
             (globals()[name], prob) for name, prob in evolution_config["mutation_probabilities"].items()
