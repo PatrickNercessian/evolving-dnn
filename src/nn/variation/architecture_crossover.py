@@ -356,9 +356,8 @@ def insert_subgraph(
     # Shape propagation
     try:
         ShapeProp(target_graph_module).propagate(target_graph_module.example_input)
-    except Exception as e:
-        logging.error("error propagating shapes", e)
-        logging.exception(e)
+    except Exception:
+        logging.exception("error propagating shapes")
         logging.debug("\nTarget graph nodes with shapes:")
         for node in target_graph_module.graph.nodes:
             if hasattr(node, "meta") and "tensor_meta" in node.meta and hasattr(node.meta["tensor_meta"], "shape"):

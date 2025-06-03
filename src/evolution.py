@@ -69,8 +69,7 @@ class Evolution:
                         child = self._mutate(child)
                     successful_child = True
                 except Exception as e:
-                    logging.error(f"Error in crossover or mutation: {e}")
-                    logging.exception(e)
+                    logging.exception("Error in crossover or mutation")
                     child.fitness = float('-inf')
                     successful_child = False
                 child.id = self.id_counter
@@ -84,8 +83,7 @@ class Evolution:
                 try:
                     child.fitness = self.fitness_fn(child)
                 except Exception as e:
-                    logging.error(f"Error in fitness function: {e} for child {child.id}")
-                    logging.exception(e)
+                    logging.exception(f"Error in fitness function: {e} for child {child.id}")
                     child.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
                     for node in child.graph_module.graph.nodes:
                         log_msg = f"Node {node.name} has shape: "
