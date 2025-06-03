@@ -1,5 +1,5 @@
 import copy
-
+import logging
 import torch
 import torch.nn.functional as F
 from mingpt.trainer import Trainer
@@ -32,8 +32,9 @@ def calculate_fitness(
     trainer = Trainer(copied_individual.train_config, copied_individual.graph_module, train_dataset)
     def batch_end_callback(trainer):
         if trainer.iter_num % 100 == 0:
-            print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
+            logging.debug(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
     trainer.set_callback('on_batch_end', batch_end_callback)
+    trainer.set_callback('on_train_end', batch_end_callback)
     trainer.run()
 
     # Calculate perplexity on the validation set
@@ -58,7 +59,7 @@ def calculate_perplexity(
     Returns:
         float: Perplexity score (lower is better)
     """
-    print("Calculating perplexity in device", device)
+    logging.debug("Calculating perplexity in device", device)
     model = model.to(device)
     model.eval()  # Set model to evaluation mode
     
@@ -83,9 +84,9 @@ def calculate_perplexity(
     
     # Calculate average loss
     avg_loss = total_loss / total_tokens if total_tokens > 0 else float('inf')
-    print("avg_loss", avg_loss)
+    logging.debug("avg_loss", avg_loss)
     
     # Perplexity is exp(average negative log likelihood)
     perplexity = torch.exp(torch.tensor(avg_loss)).item()
-    print("perplexity", perplexity)
+    logging.debug("perplexity", perplexity)
     return perplexity

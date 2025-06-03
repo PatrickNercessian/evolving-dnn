@@ -1,8 +1,8 @@
 import copy
+import logging
 import math
 import random
 from typing import Callable
-import traceback
 
 from src.individual import Individual
 
@@ -69,12 +69,12 @@ class Evolution:
                         child = self._mutate(child)
                     successful_child = True
                 except Exception as e:
-                    print(f"Error in crossover or mutation: {e}")
-                    traceback.print_exc()
+                    logging.error(f"Error in crossover or mutation: {e}")
+                    logging.exception(e)
                     child.fitness = float('-inf')
                     successful_child = False
                 child.id = self.id_counter
-                print(f"Created child {child.id}")
+                logging.info(f"Created child {child.id}")
                 self.id_counter += 1
                 new_children.append(child)
 
@@ -84,17 +84,17 @@ class Evolution:
                 try:
                     child.fitness = self.fitness_fn(child)
                 except Exception as e:
-                    import time
-                    print(f"Error in fitness function: {e} for child {child.id} at time {time.time()}")
-                    traceback.print_exc()
+                    logging.error(f"Error in fitness function: {e} for child {child.id}")
+                    logging.exception(e)
                     child.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
                     for node in child.graph_module.graph.nodes:
-                        print(f"Node {node.name} has shape:", end=" ")
+                        log_msg = f"Node {node.name} has shape: "
                         if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
-                            print(node.meta['tensor_meta'].shape)
+                            log_msg += f"{node.meta['tensor_meta'].shape}"
                         else:
-                            print("No shape found")
-                    print(child.graph_module.graph)
+                            log_msg += "No shape found"
+                        logging.debug(log_msg)
+                    logging.debug(child.graph_module.graph)
 
             self.population.extend(new_children)
             self.historical_population.extend(new_children)
@@ -120,10 +120,10 @@ class Evolution:
         Returns:
             Child
         """
-        print(f"Crossover between {child.id} and {parent.id}")
+        logging.info(f"Crossover between {child.id} and {parent.id}")
         for crossover_fn, probability in self.crossover_fns_and_probabilities:
             if random.random() < probability:
-                print(f"Crossover between {child.id} and {parent.id} with {crossover_fn.__name__}")
+                logging.info(f"Crossover between {child.id} and {parent.id} with {crossover_fn.__name__}")
                 crossover_fn(child, parent)
         return child
 
@@ -137,9 +137,10 @@ class Evolution:
         Returns:
             Mutated child individual
         """
-        print(f"Mutating {child.id}")
+        logging.info(f"Mutating {child.id}")
         for mutation_fn, probability in self.mutation_fns_and_probabilities:
             if random.random() < probability:
+                logging.info(f"Mutating {child.id} with {mutation_fn.__name__}")
                 mutation_fn(child)
         return child
     
@@ -157,7 +158,7 @@ class Evolution:
 
     def _log_individuals(self):  # To likely be overridden by subclass
         for individual in self.population:
-            print(f"Individual {individual.id} has fitness {individual.fitness}")
+            logging.debug(f"Individual {individual.id} has fitness {individual.fitness}")
 
     def _log_generation(self):
         """Log the progress of evolution"""
@@ -166,7 +167,7 @@ class Evolution:
         fitness_sum = 0
         
         for individual in self.population:
-            print(f"Individual {individual.id} survived")
+            logging.info(f"Individual {individual.id} survived")
             fitness_sum += individual.fitness
             if individual.fitness > current_best_fitness_in_gen:
                 current_best_fitness_in_gen = individual.fitness
@@ -178,8 +179,8 @@ class Evolution:
             self.best_fitness = current_best_fitness_in_gen
             self.best_individual = current_best_individual_in_gen
         
-        print(f"Generation {self.generation}:")
-        print(f"  Max Fitness in Gen: {current_best_fitness_in_gen:.4f}")
-        print(f"  Avg Fitness in Gen: {avg_fitness:.4f}")
+        logging.info(f"Generation {self.generation}:")
+        logging.info(f"  Max Fitness in Gen: {current_best_fitness_in_gen:.4f}")
+        logging.info(f"  Avg Fitness in Gen: {avg_fitness:.4f}")
         if self.best_individual:
-            print(f"  Best Individual Overall (fitness: {self.best_individual.fitness}, id: {self.best_individual.id}): {self.best_individual.train_config}")
+            logging.info(f"  Best Individual Overall (fitness: {self.best_individual.fitness}, id: {self.best_individual.id}): {self.best_individual.train_config}")

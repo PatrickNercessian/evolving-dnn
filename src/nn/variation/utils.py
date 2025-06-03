@@ -1,54 +1,13 @@
+import math
+import logging
+
 import torch
 import torch.nn as nn
-import math
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
 from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
 
-
-def find_required_shapes(node):
-    """
-    Finds the required shapes for a given node in the graph.
-    
-    Args:
-        graph: The FX graph
-        node: The node to find the required shapes for
-    Returns:
-        input_shape: The required shape of the input nodes, can be a list of shapes if the node has multiple inputs
-        output_shape: The required shape of the output node
-    """
-    # if placeholder
-    if node.op == 'placeholder':
-        return (None, tuple(node.meta['tensor_meta'].shape))
-    else:
-        # required input shape of any given node is found in the meta of any node that feeds into it
-        # check the node args for the nodes that feed into the current node
-        def get_shape(arg):
-            if isinstance(arg, torch.fx.Node):
-                try:
-                    return list(arg.meta['tensor_meta'].shape)
-                except:
-                    print(f"Error getting shape for node {arg}")
-                    return None
-            elif isinstance(arg, list):
-                return [get_shape(sub_arg) for sub_arg in arg if isinstance(sub_arg, torch.fx.Node) or isinstance(sub_arg, list)]
-            else:
-                return None
-        
-        # Get shapes of all arguments
-        input_shape = []
-        for arg in node.args:
-            # only consider the arg if it is a node or a list of nodes
-            if isinstance(arg, torch.fx.Node) or isinstance(arg, list):
-                shape = get_shape(arg)
-                if shape is not None:
-                    input_shape.append(shape)
-        input_shape = input_shape[0] if len(input_shape) == 1 else input_shape if input_shape else None
-        
-        # required output shape can be found in the meta of the node
-        output_shape = list(node.meta['tensor_meta'].shape)
-        return (input_shape, output_shape)
 
 def get_unique_name(graph, base_name: str) -> str:
     """
@@ -132,7 +91,7 @@ def add_specific_node(graph, reference_node, module_or_function, kwargs=None, ta
     else:
         new_node.args = (reference_node,)
     
-    print(f"Added node {new_node.name} after node {reference_node.name}")
+    logging.debug(f"Added node {new_node.name} after node {reference_node.name}")
     return graph, new_node
 
 def add_skip_connection(graph, second_node, first_node, torch_function=torch.add):
@@ -199,7 +158,7 @@ def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_
                 kwargs={"repeats": length_multiplier, "dim": 1},
                 target_user=target_user  # Intermediate node
             )
-            print(f"Added repeat node {repeat_node.name} after node {node.name}, repeats: {length_multiplier}")
+            logging.debug(f"Added repeat node {repeat_node.name} after node {node.name}, repeats: {length_multiplier}")
 
             if remainder > 0:
                 # Then use circular padding for the remainder
@@ -209,7 +168,7 @@ def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_
                     nn.CircularPad1d((0, remainder)),
                     target_user=target_user
                 )
-                print(f"Added circular pad node {adapted_node.name} after repeat node {repeat_node.name}, remainder: {remainder}")
+                logging.debug(f"Added circular pad node {adapted_node.name} after repeat node {repeat_node.name}, remainder: {remainder}")
             else:
                 adapted_node = repeat_node
         else:
@@ -220,7 +179,7 @@ def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_
                 nn.CircularPad1d((0, target_size - current_size)),
                 target_user=target_user
             )
-            print(f"Added circular pad node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
+            logging.debug(f"Added circular pad node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
     else:
         # Need to decrease size - use adaptive pooling
         graph, adapted_node = add_specific_node(
@@ -229,7 +188,7 @@ def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_
             nn.AdaptiveAvgPool1d(target_size),
             target_user=target_user
         )
-        print(f"Added adaptive avg pool node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
+        logging.debug(f"Added adaptive avg pool node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
 
     return graph, adapted_node
 

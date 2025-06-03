@@ -3,6 +3,9 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # TODO remove above
 
+import json
+import logging
+
 from src.gpt_evolution.initial_population import generate_initial_population
 from src.gpt_evolution.helpers import set_random_seeds
 from src.nn.evaluate import calculate_fitness
@@ -15,56 +18,68 @@ from src.nn.variation.hyperparam_variation import (
     mutate_learning_rate_scheduler, crossover_learning_rate_scheduler,
     mutate_optimizer_parameters, crossover_optimizer_parameters,
 )
-from src.nn.variation.architecture_mutation import mutation_add_linear, mutation_add_relu, mutation_add_skip_connection, mutation_add_branch, mutation_remove_node
+from src.nn.variation.architecture_mutation import (
+    mutation_add_linear, mutation_add_relu, mutation_add_skip_connection,
+    mutation_add_branch, mutation_remove_node
+)
 from src.nn.variation.architecture_crossover import crossover_subgraph
 
-import torch
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
 from tokenizers.pre_tokenizers import Whitespace
+import torch
 
 VOCAB_SIZE = 2000
 RANDOM_SEED = 42
 
 if __name__ == '__main__':
-    set_random_seeds(RANDOM_SEED)
+    with open('default_run_config.json', 'r') as f:
+        run_config = json.load(f)
 
-    if os.path.exists("tokenizer.json"):
-        tokenizer = Tokenizer.from_file("tokenizer.json")
+    tokenizer_config = run_config["tokenizer"]
+    evolution_config = run_config["evolution"]
+    training_config = run_config["training"]
+    gpt_config = run_config["gpt_config"]
+
+    experiment_path = evolution_config["experiment_path"]
+    os.makedirs(experiment_path, exist_ok=True)
+
+    log_file = os.path.join(experiment_path, "evolution_run.log")
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.FileHandler(log_file), logging.StreamHandler()]
+    )
+
+    set_random_seeds(evolution_config["random_seed"])
+
+    if os.path.exists(tokenizer_config["tokenizer_file"]):
+        tokenizer = Tokenizer.from_file(tokenizer_config["tokenizer_file"])
     else:
         tokenizer = Tokenizer(BPE())
         tokenizer.pre_tokenizer = Whitespace()
-        tokenizer.train(['mingpt/input.txt'], trainer=BpeTrainer(vocab_size=VOCAB_SIZE))
-        tokenizer.save("tokenizer.json")
+        tokenizer.train([tokenizer_config["input_file"]], trainer=BpeTrainer(vocab_size=tokenizer_config["vocab_size"]))
+        tokenizer.save(tokenizer_config["tokenizer_file"])
 
-    output = tokenizer.encode("Hey how are you?")
-    print(output.tokens)
-
-    with open('mingpt/input.txt', 'r', encoding='utf-8') as f:
+    with open(tokenizer_config["input_file"], 'r', encoding='utf-8') as f:
         text = f.read()
     encoded_text = tokenizer.encode(text)
-    print(encoded_text.tokens[:100])
     data = torch.tensor(encoded_text.ids)
 
-    BLOCK_SIZE = 128
-
-    train_dataset = TextDataset(data, BLOCK_SIZE)
+    train_dataset = TextDataset(data, gpt_config["block_size"])
 
     TARGET_POPULATION_SIZE = 5
     NUM_CHILDREN_PER_GENERATION = 5
 
-    gpt_config_params = {
-        "block_size": BLOCK_SIZE,
-        "layer_bounds": (2, 5),
-        "head_bounds": (2, 5),
-        "embed_bounds": (128, 512),
+    train_config_params = {
+        "max_iters": training_config["max_iters"],
+        "device": training_config["device"],
     }
-    train_config_params = { "max_iters": 1, "device": "cpu" }
 
     val_loader = torch.utils.data.DataLoader(
         train_dataset,  # Using same dataset for validation for now
-        batch_size=32,
+        batch_size=training_config["validation_batch_size"],
         num_workers=0,
         pin_memory=True
     )
@@ -77,41 +92,24 @@ if __name__ == '__main__':
             val_loader,
             device=train_config_params["device"],
         )
-    
-    EXPERIMENT_PATH = "experiments/test5"
-
-    os.makedirs(EXPERIMENT_PATH, exist_ok=True)
 
     evolution = NeuralNetworkEvolution(
         population=generate_initial_population(
             TARGET_POPULATION_SIZE,
             VOCAB_SIZE,
-            gpt_config_params,
+            gpt_config,
             train_config_params,
         ),
         fitness_fn=fitness_wrapper,  # Now only takes individual as parameter
-        crossover_instead_of_mutation_rate=0.5,
-        mutation_fns_and_probabilities=[
-            (mutate_batch_size, 0.2),
-            (mutate_learning_rate, 0.2),
-            (mutate_learning_rate_scheduler, 0.2),
-            (mutate_optimizer_parameters, 0.2),
-            (mutation_add_linear, 0.2),
-            (mutation_add_relu, 0.2),
-            (mutation_add_skip_connection, 0.2),
-            (mutation_add_branch, 0.2),
-            (mutation_remove_node, 0.2),
-
+        crossover_instead_of_mutation_rate=evolution_config["crossover_instead_of_mutation_rate"],
+        mutation_fns_and_probabilities=[  # These need to be imported above for it to work
+            (globals()[name], prob) for name, prob in evolution_config["mutation_probabilities"].items()
         ],
-        crossover_fns_and_probabilities=[
-            (crossover_subgraph, 0.3),
-            (crossover_batch_size, 0.3),
-            (crossover_learning_rate, 0.3),
-            (crossover_learning_rate_scheduler, 0.3),
-            (crossover_optimizer_parameters, 0.3),
+        crossover_fns_and_probabilities=[  # These need to be imported above for it to work
+            (globals()[name], prob) for name, prob in evolution_config["crossover_probabilities"].items()
         ],
-        target_population_size=TARGET_POPULATION_SIZE,
-        num_children_per_generation=NUM_CHILDREN_PER_GENERATION,
-        experiment_path=EXPERIMENT_PATH,
+        target_population_size=evolution_config["target_population_size"],
+        num_children_per_generation=evolution_config["num_children_per_generation"],
+        experiment_individuals_path=f"{experiment_path}/individuals",
     )
-    evolution.run_evolution(3)
+    evolution.run_evolution(evolution_config["num_generations"])

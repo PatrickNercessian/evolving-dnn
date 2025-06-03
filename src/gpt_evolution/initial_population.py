@@ -1,3 +1,4 @@
+import logging
 import random
 
 import torch
@@ -29,11 +30,11 @@ def generate_initial_population(
     population = []
     
     for i in range(population_size):
-        print(f"Generating individual {i+1} of {population_size}")
+        logging.info(f"Generating individual {i+1} of {population_size}")
         model_config = create_random_gpt_config(vocab_size, **gpt_config_params)
         train_config = create_random_train_config(**train_config_params)
-        print("model_config", model_config)
-        print("train_config", train_config)
+        logging.debug("model_config", model_config)
+        logging.debug("train_config", train_config)
         example_input = torch.randint(0, model_config.vocab_size, (1, model_config.block_size))
         graph_module = get_graph(GPT(model_config), example_input=example_input)
         population.append(NeuralNetworkIndividual(i, graph_module=graph_module, train_config=train_config))

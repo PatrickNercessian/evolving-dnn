@@ -115,4 +115,5 @@ class Trainer:
 
             # termination conditions
             if config.max_iters is not None and self.iter_num >= config.max_iters:
+                self.trigger_callbacks('on_train_end')
                 break

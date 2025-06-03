@@ -1,0 +1,44 @@
+{
+    "tokenizer": {
+      "vocab_size": 2000,
+      "tokenizer_file": "tokenizer.json",
+      "input_file": "mingpt/input.txt"
+    },
+    "evolution": {
+      "random_seed": 42,
+      "target_population_size": 5,
+      "num_children_per_generation": 5,
+      "num_generations": 3,
+      "crossover_instead_of_mutation_rate": 0.5,
+      "experiment_path": "experiments/test5",
+      "mutation_probabilities": {
+        "mutate_batch_size": 0.2,
+        "mutate_learning_rate": 0.2,
+        "mutate_learning_rate_scheduler": 0.2,
+        "mutate_optimizer_parameters": 0.2,
+        "mutation_add_linear": 0.2,
+        "mutation_add_relu": 0.2,
+        "mutation_add_skip_connection": 0.2,
+        "mutation_add_branch": 0.2,
+        "mutation_remove_node": 0.2
+      },
+      "crossover_probabilities": {
+        "crossover_subgraph": 0.3,
+        "crossover_batch_size": 0.3,
+        "crossover_learning_rate": 0.3,
+        "crossover_learning_rate_scheduler": 0.3,
+        "crossover_optimizer_parameters": 0.3
+      }
+    },
+    "gpt_config": {
+      "block_size": 128,
+      "layer_bounds": [2, 5],
+      "head_bounds": [2, 5],
+      "embed_bounds": [128, 512]
+    },
+    "training": {
+      "max_iters": 1000,
+      "device": "cuda",
+      "validation_batch_size": 32
+    }
+  }
