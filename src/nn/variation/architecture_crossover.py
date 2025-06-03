@@ -39,9 +39,9 @@ def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndi
                     "output_mapping": output_mapping
                 }
         except ValueError as e:
-            logging.warning("error finding subgraph", e)
+            logging.warning(f"error finding subgraph: {e}")
             broken_subgraphs += 1
-    logging.debug("broken_subgraphs", broken_subgraphs)
+    logging.debug(f"broken_subgraphs: {broken_subgraphs}")
 
     # Extract node names for highlighting
     subgraph_node_names = {node.name for node in insert_subgraph_kwargs["subgraph_nodes"]}
@@ -68,7 +68,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     all_nodes = list(graph_module.graph.nodes)
     anchor_node = random.choice(all_nodes)
     while not _is_allowed_subgraph_node_type(anchor_node):
-        logging.warning("picked node with non-allowed type or name:", anchor_node.op, anchor_node.name)
+        logging.warning(f"picked node with non-allowed type or name: {anchor_node.op} {anchor_node.name}")
         anchor_node = random.choice(all_nodes)
     subgraph_nodes = {anchor_node}
     frontier_nodes = [anchor_node]
@@ -179,7 +179,7 @@ def find_subgraph_connections(
             if candidates:
                 all_candidates[node] = candidates
             else:
-                logging.warning("no candidates found for node", node)
+                logging.warning(f"no candidates found for node: {node}")
         return all_candidates
     
     input_mapping, _ = _select_random_mapping(input_mapping, get_candidates(input_mapping))
@@ -222,8 +222,7 @@ def _select_random_mapping(
                 used_candidates.add(selected)
                 boundary_nodes[node][i] = selected
             else:
-                logging.warning("no candidates found for node", node)
-                raise ValueError("no candidates found for node", node)
+                raise ValueError(f"no candidates found for node: {node}")
 
     return boundary_nodes, visited_target_input_nodes
 
@@ -262,9 +261,9 @@ def insert_subgraph(
     new_node_names = set()
     old_to_new = {}
     ordered_subgraph = _kanh_algo(subgraph_nodes)
-    logging.debug("ordered_subgraph", ordered_subgraph)
-    logging.debug("input_mapping", input_mapping)
-    logging.debug("output_mapping", output_mapping)
+    logging.debug(f"ordered_subgraph: {ordered_subgraph}")
+    logging.debug(f"input_mapping: {input_mapping}")
+    logging.debug(f"output_mapping: {output_mapping}")
 
     # Insert nodes in topological order and adapt shapes
     for i, node in enumerate(ordered_subgraph):
@@ -317,10 +316,10 @@ def insert_subgraph(
 
     # For each output boundary node, replace the input of the mapped target node
     for sub_out, users in output_mapping.items():
-        logging.debug("sub_out", sub_out)
+        logging.debug(f"sub_out: {sub_out}")
         for user in users:
             if user in subgraph_nodes:
-                logging.debug("user already in subgraph_nodes", user)  # TODO instead of skipping, we might not even need to add it in the first place, in random_subgraph. I think I did this in case we cared about order of users, but I don't think we do...?
+                logging.debug(f"user already in subgraph_nodes: {user}")  # TODO instead of skipping, we might not even need to add it in the first place, in random_subgraph. I think I did this in case we cared about order of users, but I don't think we do...?
                 continue
             new_out_node = old_to_new[sub_out]
             # Replace the input of user with new_out_node
@@ -348,7 +347,7 @@ def insert_subgraph(
                 target_user=user
             )
 
-    logging.debug("old_to_new", old_to_new)
+    logging.debug(f"old_to_new: {old_to_new}")
     
     target_graph_module.graph.lint()
     target_graph_module.recompile()
@@ -390,7 +389,7 @@ def _kanh_algo(subgraph_nodes: set[torch.fx.Node]) -> list[torch.fx.Node]:
     return topo_order
 
 def _insert_node(target_graph: torch.fx.GraphModule, after_node: torch.fx.Node, node: torch.fx.Node, new_args, new_module_name, new_attr_name):
-    logging.debug("inserting after", after_node)
+    logging.debug(f"inserting after: {after_node}")
     def _insert_call(func, target):
         with target_graph.graph.inserting_after(after_node):
             return func(target, args=new_args, kwargs=node.kwargs)

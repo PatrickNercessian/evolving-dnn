@@ -27,7 +27,7 @@ class NeuralNetworkEvolution(Evolution):
                 if experiment_individuals_path:
                     visualize_graph(individual.graph_module, "model_graph", f"{graphs_path}/{individual.id}_graph.svg")
                     with open(f"{train_configs_path}/{individual.id}_train_config.json", "w") as f:
-                        json.dump(individual.train_config.to_dict(), f)
+                        json.dump(individual.train_config.to_dict(), f, indent=4)
                     torch.save(individual.graph_module, f"{models_path}/{individual.id}_model.pt")
             except Exception:
                 logging.exception(f"Error logging/saving individual {individual.id}")

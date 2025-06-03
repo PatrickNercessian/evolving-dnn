@@ -9,3 +9,4 @@ input.txt
 *.csv
 *.parquet
 tokenizer.json
+experiments/

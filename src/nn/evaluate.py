@@ -59,7 +59,7 @@ def calculate_perplexity(
     Returns:
         float: Perplexity score (lower is better)
     """
-    logging.debug("Calculating perplexity in device", device)
+    logging.debug(f"Calculating perplexity in device: {device}")
     model = model.to(device)
     model.eval()  # Set model to evaluation mode
     
@@ -84,9 +84,9 @@ def calculate_perplexity(
     
     # Calculate average loss
     avg_loss = total_loss / total_tokens if total_tokens > 0 else float('inf')
-    logging.debug("avg_loss", avg_loss)
+    logging.debug(f"avg_loss: {avg_loss}")
     
     # Perplexity is exp(average negative log likelihood)
     perplexity = torch.exp(torch.tensor(avg_loss)).item()
-    logging.debug("perplexity", perplexity)
+    logging.debug(f"perplexity: {perplexity}")
     return perplexity

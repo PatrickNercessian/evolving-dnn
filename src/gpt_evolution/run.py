@@ -1,7 +1,4 @@
-import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# TODO remove above
 
 import json
 import logging
@@ -34,7 +31,7 @@ VOCAB_SIZE = 2000
 RANDOM_SEED = 42
 
 if __name__ == '__main__':
-    with open('default_run_config.json', 'r') as f:
+    with open('src/gpt_evolution/default_run_config.json', 'r') as f:
         run_config = json.load(f)
 
     tokenizer_config = run_config["tokenizer"]
