@@ -3,6 +3,8 @@ Simple training loop; Boilerplate that could apply to any arbitrary neural netwo
 so nothing in this file really has anything to do with GPT specifically.
 """
 
+import math
+import logging
 import time
 from collections import defaultdict
 
@@ -49,7 +51,7 @@ class Trainer:
         else:
             self.device = config.device
         self.model = self.model.to(self.device)
-        print("running on device", self.device)
+        logging.debug(f"running on device {self.device}")
 
         # variables that will be assigned to trainer class later for logging and etc
         self.iter_num = 0
@@ -111,6 +113,9 @@ class Trainer:
             # forward the model
             logits = model(x)
             self.loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1), ignore_index=-1)
+            if math.isnan(self.loss):
+                logging.warning(f"Loss is nan at iter {self.iter_num}")
+                continue
 
             # backprop and update the parameters
             model.zero_grad(set_to_none=True)
