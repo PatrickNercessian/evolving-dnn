@@ -10,3 +10,4 @@ input.txt
 *.parquet
 tokenizer.json
 experiments/
+*.ipynb

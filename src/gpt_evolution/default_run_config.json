@@ -1,13 +1,22 @@
 {
     "tokenizer": {
       "vocab_size": 2000,
-      "tokenizer_file": "tokenizer.json",
-      "input_file": "mingpt/input.txt"
+      "tokenizer_filename": "tokenizer.json",
+      "input_file": "mingpt/input.txt",
+      "dataset": "HuggingFaceFW/fineweb",
+      "dataset_name": "sample-10BT",
+      "data_dir": "sample/10BT",
+      "data_files_prefixes": {
+        "train": ["000", "001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"],
+        "validation": ["013", "014"]
+      },
+      "data_files_suffix": "_00000.parquet",
+      "tokenizer_training_samples": 10000
     },
     "evolution": {
       "random_seed": 42,
-      "target_population_size": 5,
-      "num_children_per_generation": 5,
+      "target_population_size": 2,
+      "num_children_per_generation": 2,
       "num_generations": 3,
       "crossover_instead_of_mutation_rate": 0.5,
       "experiment_path": "experiments/test5",
@@ -41,4 +50,4 @@
       "device": "cuda",
       "validation_batch_size": 32
     }
-  }
+}

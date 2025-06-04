@@ -9,7 +9,6 @@ from src.gpt_evolution.helpers import set_random_seeds
 from src.nn.evaluate import calculate_fitness
 from src.nn.individual import NeuralNetworkIndividual
 from src.nn.evolution import NeuralNetworkEvolution
-from src.nn.dataset import TextDataset
 from src.nn.variation.hyperparam_variation import (
     mutate_batch_size, crossover_batch_size,
     mutate_learning_rate, crossover_learning_rate,
@@ -22,6 +21,9 @@ from src.nn.variation.architecture_mutation import (
 )
 from src.nn.variation.architecture_crossover import crossover_subgraph
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+from datasets import load_dataset
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
@@ -59,41 +61,60 @@ if __name__ == '__main__':
         handlers=[logging.FileHandler(log_file), logging.StreamHandler()]
     )
 
+    # Silence verbose loggers
+    for logger_name in ["urllib3", "datasets", "huggingface_hub", "fsspec"]:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
     set_random_seeds(evolution_config["random_seed"])
 
-    if os.path.exists(tokenizer_config["tokenizer_file"]):
-        tokenizer = Tokenizer.from_file(tokenizer_config["tokenizer_file"])
+
+    load_dataset_constant_kwargs = {"path": tokenizer_config["dataset"], "name": tokenizer_config["dataset_name"], "streaming": True}
+    if "data_files_prefixes" in tokenizer_config:
+        suffix = tokenizer_config["data_files_suffix"]
+        train_data_files = [f"{prefix}{suffix}" for prefix in tokenizer_config["data_files_prefixes"]["train"]]
+        validation_data_files = [f"{prefix}{suffix}" for prefix in tokenizer_config["data_files_prefixes"]["validation"]]
+        print(train_data_files)
+        print(validation_data_files)
+        iterable_train_dataset = load_dataset(**load_dataset_constant_kwargs, split="train", data_dir=tokenizer_config["data_dir"], data_files=train_data_files)
+        iterable_validation_dataset = load_dataset(**load_dataset_constant_kwargs, split="train", data_dir=tokenizer_config["data_dir"], data_files=validation_data_files)
+    else:
+        datasets = load_dataset(**load_dataset_constant_kwargs)
+        iterable_train_dataset = datasets["train"]
+        iterable_validation_dataset = datasets["validation"]
+
+    tokenizer_filepath = os.path.join(experiment_path, tokenizer_config["tokenizer_filename"])
+    if os.path.exists(tokenizer_filepath):
+        print("Loading tokenizer from file")
+        tokenizer = Tokenizer.from_file(tokenizer_filepath)
     else:
         tokenizer = Tokenizer(BPE())
         tokenizer.pre_tokenizer = Whitespace()
-        tokenizer.train([tokenizer_config["input_file"]], trainer=BpeTrainer(vocab_size=tokenizer_config["vocab_size"]))
-        tokenizer.save(tokenizer_config["tokenizer_file"])
 
-    with open(tokenizer_config["input_file"], 'r', encoding='utf-8') as f:
-        text = f.read()
-    encoded_text = tokenizer.encode(text)
-    data = torch.tensor(encoded_text.ids)
-
-    train_dataset = TextDataset(data, gpt_config["block_size"])
+        def text_generator():
+            count = 0
+            total_samples = tokenizer_config.get("tokenizer_training_samples", 10000)  # Default to 10k samples
+            for example in iterable_train_dataset:
+                if count >= total_samples:
+                    break
+                yield example["text"]
+                count += 1
+        
+        tokenizer.train_from_iterator(text_generator(), trainer=BpeTrainer(vocab_size=tokenizer_config["vocab_size"]))
+        tokenizer.save(tokenizer_filepath)
 
     train_config_params = {
         "max_iters": training_config["max_iters"],
         "device": training_config["device"],
     }
 
-    val_loader = torch.utils.data.DataLoader(
-        train_dataset,  # Using same dataset for validation for now
-        batch_size=training_config["validation_batch_size"],
-        num_workers=0,
-        pin_memory=True
-    )
-
     # Create a wrapper for calculate_fitness that only takes individual
     def fitness_wrapper(individual: NeuralNetworkIndividual) -> float:
         return calculate_fitness(
             individual,
-            train_dataset,
-            val_loader,
+            iterable_train_dataset,
+            iterable_validation_dataset,
+            tokenizer,
+            block_size=gpt_config["block_size"],
             device=train_config_params["device"],
         )
 

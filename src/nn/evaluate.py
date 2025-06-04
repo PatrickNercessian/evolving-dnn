@@ -3,15 +3,19 @@ import logging
 import torch
 import torch.nn.functional as F
 from mingpt.trainer import Trainer
+from torch.utils.data import DataLoader
 
 from src.nn.individual import NeuralNetworkIndividual
+from src.nn.dataset import HuggingFaceIterableDataset
 
 TOTAL_BATCHES_FOR_EVALUATION = 20
 
 def calculate_fitness(
     individual: NeuralNetworkIndividual,
-    train_dataset: torch.utils.data.Dataset,
-    val_data_loader: torch.utils.data.DataLoader,
+    iterable_train_dataset,
+    iterable_test_dataset, 
+    tokenizer,
+    block_size: int,
     num_train_steps: int = 100,
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
 ) -> float:
@@ -20,8 +24,10 @@ def calculate_fitness(
     (negative because evolution maximizes fitness, but we want to minimize loss)
     
     Args:
-        model: The GPT model to evaluate
-        data_loader: DataLoader providing training examples
+        individual: The NeuralNetworkIndividual to evaluate
+        iterable_train_dataset: HuggingFace iterable dataset for training
+        iterable_test_dataset: HuggingFace iterable dataset for testing
+        tokenizer: Tokenizer for encoding text
         num_train_steps: Number of training steps to perform
         device: Device to train on
         
@@ -29,6 +35,16 @@ def calculate_fitness(
         float: Fitness score (higher is better)
     """
     copied_individual = copy.deepcopy(individual)
+        
+    # Create train dataset
+    train_dataset = HuggingFaceIterableDataset(
+        iterable_train_dataset,
+        tokenizer,
+        block_size,
+        max_samples=num_train_steps * copied_individual.train_config.batch_size * 2  # Provide enough samples
+    )
+    
+    # Run training
     trainer = Trainer(copied_individual.train_config, copied_individual.graph_module, train_dataset)
     def batch_end_callback(trainer):
         if trainer.iter_num % 100 == 0:
@@ -38,23 +54,35 @@ def calculate_fitness(
     trainer.run()
 
     # Calculate perplexity on the validation set
-    perplexity = calculate_perplexity(copied_individual.graph_module, val_data_loader, device=device)
+    perplexity = calculate_perplexity(
+        copied_individual.graph_module, 
+        iterable_test_dataset,
+        tokenizer,
+        block_size,
+        device=device
+    )
 
     # Return negative perplexity as fitness (lower perplexity = better)
     return -perplexity
 
 def calculate_perplexity(
     model: torch.nn.Module,
-    data_loader: torch.utils.data.DataLoader,
-    device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
+    iterable_test_dataset,
+    tokenizer,
+    block_size: int,
+    device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
+    batch_size: int = 32
 ) -> float:
     """
     Calculate perplexity of a GPT model on the provided data
     
     Args:
         model: The GPT model to evaluate
-        data_loader: DataLoader providing examples (inputs and targets)
+        iterable_test_dataset: HuggingFace iterable dataset for testing
+        tokenizer: Tokenizer for encoding text
+        block_size: Sequence length for the model
         device: Device to evaluate on
+        batch_size: Batch size for evaluation
         
     Returns:
         float: Perplexity score (lower is better)
@@ -63,13 +91,29 @@ def calculate_perplexity(
     model = model.to(device)
     model.eval()  # Set model to evaluation mode
     
+    # Create test dataset
+    test_dataset = HuggingFaceIterableDataset(
+        iterable_test_dataset,
+        tokenizer,
+        block_size,
+        max_samples=TOTAL_BATCHES_FOR_EVALUATION * batch_size  # Limit samples for evaluation
+    )
+    
+    # Create DataLoader
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        num_workers=0,  # Important for iterable datasets
+        pin_memory=True
+    )
+    
     total_loss = 0.0
     total_tokens = 0
     
     # Disable gradient computation for efficiency
     with torch.no_grad():
-        for i, batch in enumerate(data_loader):
-            if i > TOTAL_BATCHES_FOR_EVALUATION:
+        for i, batch in enumerate(test_loader):
+            if i >= TOTAL_BATCHES_FOR_EVALUATION:
                 break
             idx, targets = batch
             idx, targets = idx.to(device), targets.to(device)

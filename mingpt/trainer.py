@@ -73,14 +73,25 @@ class Trainer:
         self.optimizer = model.configure_optimizers(config)
 
         # setup the dataloader
-        train_loader = DataLoader(
-            self.train_dataset,
-            sampler=torch.utils.data.RandomSampler(self.train_dataset, replacement=True, num_samples=int(1e10)),
-            shuffle=False,
-            pin_memory=True,
-            batch_size=config.batch_size,
-            num_workers=config.num_workers,
-        )
+        # Check if we have an IterableDataset or a regular Dataset
+        if hasattr(self.train_dataset, '__len__'):
+            # Regular Dataset with RandomSampler
+            train_loader = DataLoader(
+                self.train_dataset,
+                sampler=torch.utils.data.RandomSampler(self.train_dataset, replacement=True, num_samples=int(1e10)),
+                shuffle=False,
+                pin_memory=True,
+                batch_size=config.batch_size,
+                num_workers=config.num_workers,
+            )
+        else:
+            # IterableDataset - no sampler needed
+            train_loader = DataLoader(
+                self.train_dataset,
+                batch_size=config.batch_size,
+                pin_memory=True,
+                num_workers=0,  # IterableDatasets work better with num_workers=0
+            )
 
         model.train()
         self.iter_num = 0
