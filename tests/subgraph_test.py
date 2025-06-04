@@ -7,8 +7,8 @@ from src.nn.core import get_graph
 from src.nn.visualization import visualize_graph
 from src.nn.variation.architecture_crossover import random_subgraph, find_subgraph_connections, insert_subgraph
 
-from mingpt.model import GPT
-from mingpt.utils import CfgNode as CN
+from src.mingpt_altered.model import GPT
+from src.mingpt_altered.utils import CfgNode as CN
 
 import torch
 import torch.fx

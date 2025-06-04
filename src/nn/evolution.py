@@ -6,9 +6,9 @@ import os
 import torch
 from torch.fx import Graph
 
-from src.evolution import Evolution
-from src.nn.individual import NeuralNetworkIndividual
-from src.nn.visualization import visualize_graph
+from ..evolution import Evolution
+from .individual import NeuralNetworkIndividual
+from .visualization import visualize_graph
 
 class NeuralNetworkEvolution(Evolution):
     def _log_individuals(self):

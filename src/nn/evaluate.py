@@ -2,11 +2,11 @@ import copy
 import logging
 import torch
 import torch.nn.functional as F
-from mingpt.trainer import Trainer
 from torch.utils.data import DataLoader
 
-from src.nn.individual import NeuralNetworkIndividual
-from src.nn.dataset import HuggingFaceIterableDataset
+from ..mingpt_altered.trainer import Trainer
+from .individual import NeuralNetworkIndividual
+from .dataset import HuggingFaceIterableDataset
 
 TOTAL_BATCHES_FOR_EVALUATION = 20
 

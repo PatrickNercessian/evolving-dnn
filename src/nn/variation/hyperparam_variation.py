@@ -1,7 +1,7 @@
 import logging
 
 import numpy as np
-from src.nn.individual import NeuralNetworkIndividual
+from ..individual import NeuralNetworkIndividual
 
 def mutate_batch_size(individual: NeuralNetworkIndividual) -> NeuralNetworkIndividual:
     """

@@ -4,7 +4,7 @@ import math
 import random
 from typing import Callable
 
-from src.individual import Individual
+from .individual import Individual
 
 class Evolution:
     def __init__(

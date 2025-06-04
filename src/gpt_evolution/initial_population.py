@@ -3,11 +3,11 @@ import random
 
 import torch
 
-from mingpt.model import GPT
-from mingpt.utils import CfgNode as CN
+from ..mingpt_altered.model import GPT
+from ..mingpt_altered.utils import CfgNode as CN
 
-from src.nn.core import get_graph
-from src.nn.individual import NeuralNetworkIndividual
+from ..nn.core import get_graph
+from ..nn.individual import NeuralNetworkIndividual
 
 def generate_initial_population(
     population_size: int,

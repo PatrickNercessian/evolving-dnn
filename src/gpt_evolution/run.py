@@ -4,22 +4,22 @@ import argparse
 import json
 import logging
 
-from src.gpt_evolution.initial_population import generate_initial_population
-from src.gpt_evolution.helpers import set_random_seeds
-from src.nn.evaluate import calculate_fitness
-from src.nn.individual import NeuralNetworkIndividual
-from src.nn.evolution import NeuralNetworkEvolution
-from src.nn.variation.hyperparam_variation import (
+from ..gpt_evolution.initial_population import generate_initial_population
+from ..gpt_evolution.helpers import set_random_seeds
+from ..nn.evaluate import calculate_fitness
+from ..nn.individual import NeuralNetworkIndividual
+from ..nn.evolution import NeuralNetworkEvolution
+from ..nn.variation.hyperparam_variation import (
     mutate_batch_size, crossover_batch_size,
     mutate_learning_rate, crossover_learning_rate,
     mutate_learning_rate_scheduler, crossover_learning_rate_scheduler,
     mutate_optimizer_parameters, crossover_optimizer_parameters,
 )
-from src.nn.variation.architecture_mutation import (
+from ..nn.variation.architecture_mutation import (
     mutation_add_linear, mutation_add_relu, mutation_add_skip_connection,
     mutation_add_branch, mutation_remove_node
 )
-from src.nn.variation.architecture_crossover import crossover_subgraph
+from ..nn.variation.architecture_crossover import crossover_subgraph
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -73,8 +73,6 @@ if __name__ == '__main__':
         suffix = tokenizer_config["data_files_suffix"]
         train_data_files = [f"{prefix}{suffix}" for prefix in tokenizer_config["data_files_prefixes"]["train"]]
         validation_data_files = [f"{prefix}{suffix}" for prefix in tokenizer_config["data_files_prefixes"]["validation"]]
-        print(train_data_files)
-        print(validation_data_files)
         iterable_train_dataset = load_dataset(**load_dataset_constant_kwargs, split="train", data_dir=tokenizer_config["data_dir"], data_files=train_data_files)
         iterable_validation_dataset = load_dataset(**load_dataset_constant_kwargs, split="train", data_dir=tokenizer_config["data_dir"], data_files=validation_data_files)
     else:
@@ -84,7 +82,7 @@ if __name__ == '__main__':
 
     tokenizer_filepath = os.path.join(experiment_path, tokenizer_config["tokenizer_filename"])
     if os.path.exists(tokenizer_filepath):
-        print("Loading tokenizer from file")
+        logging.info("Loading tokenizer from file")
         tokenizer = Tokenizer.from_file(tokenizer_filepath)
     else:
         tokenizer = Tokenizer(BPE())

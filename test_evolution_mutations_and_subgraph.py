@@ -16,7 +16,7 @@ from src.evolution import Evolution
 from src.nn.individual import NeuralNetworkIndividual
 from src.nn.core import add_node, get_graph, remove_node
 from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
-from mingpt.utils import CfgNode as CN
+from src.mingpt_altered.utils import CfgNode as CN
 from src.nn.variation.architecture_crossover import crossover_subgraph
 from src.nn.variation.architecture_mutation import (
     mutation_add_linear,

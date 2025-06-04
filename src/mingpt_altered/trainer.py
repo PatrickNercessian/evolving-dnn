@@ -10,7 +10,7 @@ import torch
 from torch.nn import functional as F
 
 from torch.utils.data.dataloader import DataLoader
-from mingpt.utils import CfgNode as CN
+from .utils import CfgNode as CN
 
 class Trainer:
 

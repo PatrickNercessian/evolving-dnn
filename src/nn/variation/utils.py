@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
-from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
+from ..individual_graph_module import NeuralNetworkIndividualGraphModule
 
 
 def get_unique_name(graph, base_name: str) -> str:

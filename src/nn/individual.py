@@ -1,7 +1,7 @@
-from mingpt.utils import CfgNode as CN
 import copy
 
-from src.individual import Individual
+from ..mingpt_altered.utils import CfgNode as CN
+from ..individual import Individual
 
 class NeuralNetworkIndividual(Individual):
     def __init__(self, id: int, **kwargs):

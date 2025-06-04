@@ -7,8 +7,8 @@ import torch.nn as nn
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
-from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
-from src.nn.variation.utils import (
+from ..individual_graph_module import NeuralNetworkIndividualGraphModule
+from ..variation.utils import (
     node_has_shape, add_specific_node, add_skip_connection,
     adapt_node_shape, add_branch_nodes, get_feature_dims
 )

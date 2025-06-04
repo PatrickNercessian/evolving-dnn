@@ -6,9 +6,9 @@ import os
 
 import torch
 
-from src.nn.individual import NeuralNetworkIndividual
-from src.nn.variation.utils import adapt_node_shape, get_unique_name, node_has_shape
-from src.nn.visualization import visualize_graph
+from ..individual import NeuralNetworkIndividual
+from ..variation.utils import adapt_node_shape, get_unique_name, node_has_shape
+from ..visualization import visualize_graph
 
 from torch.fx.passes.shape_prop import ShapeProp
 
