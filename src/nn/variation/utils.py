@@ -192,6 +192,16 @@ def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_
 
     return graph, adapted_node
 
+class ReshapeModule(nn.Module):
+    """A PyTorch module for reshaping tensors to a specific target size."""
+    
+    def __init__(self, target_size):
+        super().__init__()
+        self.target_size = target_size
+    
+    def forward(self, x):
+        return x.reshape(-1, *self.target_size)
+
 def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     """
     Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
@@ -229,7 +239,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
         graph, reshape_node = add_specific_node(
             graph,
             node,
-            lambda x: x.reshape(-1, *target_size),
+            ReshapeModule(target_size),
             target_user=target_user
         )
         return graph, reshape_node
