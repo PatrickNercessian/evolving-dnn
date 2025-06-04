@@ -232,3 +232,20 @@ evolution = Evolution(
     # ... other parameters
 )
 ```
+
+## Running an Experiment on a Fresh Ubuntu 20.04 Server
+
+To quickly set up and run an experiment on a new Ubuntu 20.04 server, execute the following commands **manually in your terminal**. These commands will install necessary dependencies, clone the repository, and launch the experiment:
+
+```bash
+apt update
+apt install git software-properties-common -y
+git clone https://www.github.com/PatrickNercessian/evolving-dnn
+cd evolving-dnn/
+chmod +x run_experiment.sh
+./run_experiment.sh
+```
+
+> **Note:**  
+> These commands are also available in the `commands.txt` file in the repository root.  
+> The script will set up Python 3.11, create a virtual environment, install requirements, and start the experiment.

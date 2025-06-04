@@ -1,0 +1,6 @@
+apt update
+apt install git software-properties-common -y
+git clone https://www.github.com/PatrickNercessian/evolving-dnn
+cd evolving-dnn/
+chmod +x run_experiment.sh
+./run_experiment.sh
