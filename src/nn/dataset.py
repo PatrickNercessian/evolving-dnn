@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data import IterableDataset
 
-class HuggingFaceIterableDataset(IterableDataset):
+class HuggingFaceIterableDataset(IterableDataset):  # TODO we should store on disk when we pull, and load from disk if it's there
     def __init__(self, iterable_dataset, tokenizer, block_size, max_samples=None):
         """
         Wrapper for HuggingFace iterable datasets to work with PyTorch DataLoader
