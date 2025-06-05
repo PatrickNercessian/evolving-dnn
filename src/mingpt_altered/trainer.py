@@ -112,15 +112,19 @@ class Trainer:
 
             # forward the model
             logits = model(x)
+            if self.device == 'cuda': torch.cuda.synchronize()
             self.loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1), ignore_index=-1)
+            if self.device == 'cuda': torch.cuda.synchronize()
             if math.isnan(self.loss):
                 raise ValueError(f"Loss is nan at iter {self.iter_num}")
 
             # backprop and update the parameters
             model.zero_grad(set_to_none=True)
             self.loss.backward()
+            if self.device == 'cuda': torch.cuda.synchronize()
             torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
             self.optimizer.step()
+            if self.device == 'cuda': torch.cuda.synchronize()
 
             self.trigger_callbacks('on_batch_end')
             self.iter_num += 1
