@@ -114,8 +114,7 @@ class Trainer:
             logits = model(x)
             self.loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1), ignore_index=-1)
             if math.isnan(self.loss):
-                logging.warning(f"Loss is nan at iter {self.iter_num}")
-                continue
+                raise ValueError(f"Loss is nan at iter {self.iter_num}")
 
             # backprop and update the parameters
             model.zero_grad(set_to_none=True)
