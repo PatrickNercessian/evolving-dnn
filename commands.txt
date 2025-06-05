@@ -1,7 +1,7 @@
 In a brand new ubuntu 20_04 server, run the following commands manually to run an experiment:
 
 apt update && \
-apt install git software-properties-common -y screen rsync && \
+apt install git software-properties-common graphviz -y screen rsync && \
 cd /workspace/
 git clone https://www.github.com/PatrickNercessian/evolving-dnn && \
 cd evolving-dnn/ && \

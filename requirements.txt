@@ -5,4 +5,3 @@ regex==2024.11.6
 numpy==2.2.4
 tokenizers==0.21.1
 datasets>=3.6.0
-pydot==3.0.4
