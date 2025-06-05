@@ -47,8 +47,15 @@ def calculate_fitness(
     # Run training
     trainer = Trainer(copied_individual.train_config, copied_individual.graph_module, train_dataset)
     def batch_end_callback(trainer):
+        # TODO need to pick max iter_dt based on the model sizes.
+        if trainer.iter_dt > 20000:  # if it even has one that's this bad, just kill it
+            raise ValueError(f"Iteration took too long: {trainer.iter_dt} seconds at iter {trainer.iter_num}")
         if trainer.iter_num % 100 == 0:
             logging.debug(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
+
+            # TODO better to do some averaging here instead of just checking 1/100
+            if trainer.iter_dt > 200:  # Do it here so less likely that a random slow iteration will cause the entire train to fail
+                raise ValueError(f"Iteration took too long: {trainer.iter_dt} seconds at iter {trainer.iter_num}")
     trainer.set_callback('on_batch_end', batch_end_callback)
     trainer.set_callback('on_train_end', batch_end_callback)
     trainer.run()
