@@ -1,7 +1,8 @@
 In a brand new ubuntu 20_04 server, run the following commands manually to run an experiment:
 
 apt update && \
-apt install git software-properties-common -y screen && \
+apt install git software-properties-common -y screen rsync && \
+cd /workspace/
 git clone https://www.github.com/PatrickNercessian/evolving-dnn && \
 cd evolving-dnn/ && \
 git checkout refactor-for-experiments && \
@@ -10,4 +11,4 @@ chmod +x run_experiment.sh && \
 
 
 To get the output files locally:
-rsync -avz --progress --update username@server-ip:~/evolving-dnn/experiments/test5/ ./experiments/test5/
+rsync -avz -e "ssh -p [PORT] -i ~/.ssh/id_ed25519" root@[IP.ADDRESS]:/workspace/evolving-dnn/experiments/[EXPERIMENT_NAME] experiments
