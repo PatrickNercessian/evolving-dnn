@@ -1,5 +1,5 @@
 # python 3.11.11
-torch==2.4.0
+torch==2.6.0
 pydot==3.0.4
 regex==2024.11.6
 numpy==2.2.4
