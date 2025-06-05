@@ -33,6 +33,41 @@ import torch
 VOCAB_SIZE = 2000
 RANDOM_SEED = 42
 
+def configure_logger(experiment_path):
+    debug_log_file = os.path.join(experiment_path, "evolution_run_debug.log")
+    warning_log_file = os.path.join(experiment_path, "evolution_run.log")
+    
+    # Configure root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    
+    # Create formatter
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    
+    # Handler for DEBUG and above (all messages) - goes to debug file
+    debug_handler = logging.FileHandler(debug_log_file)
+    debug_handler.setLevel(logging.DEBUG)
+    debug_handler.setFormatter(formatter)
+    
+    # Handler for WARNING and above only - goes to warnings file
+    warning_handler = logging.FileHandler(warning_log_file)
+    warning_handler.setLevel(logging.WARNING)
+    warning_handler.setFormatter(formatter)
+    
+    # Console handler for INFO and above
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    
+    # Add handlers to logger
+    logger.addHandler(debug_handler)
+    logger.addHandler(warning_handler)
+    logger.addHandler(console_handler)
+
+    # Silence verbose loggers
+    for logger_name in ["urllib3", "datasets", "huggingface_hub", "fsspec"]:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run GPT Evolution experiment.")
     parser.add_argument(
@@ -54,19 +89,9 @@ if __name__ == '__main__':
     experiment_path = evolution_config["experiment_path"]
     os.makedirs(experiment_path, exist_ok=True)
 
-    log_file = os.path.join(experiment_path, "evolution_run.log")
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[logging.FileHandler(log_file), logging.StreamHandler()]
-    )
-
-    # Silence verbose loggers
-    for logger_name in ["urllib3", "datasets", "huggingface_hub", "fsspec"]:
-        logging.getLogger(logger_name).setLevel(logging.WARNING)
+    configure_logger(experiment_path)
 
     set_random_seeds(evolution_config["random_seed"])
-
 
     load_dataset_constant_kwargs = {"path": tokenizer_config["dataset"], "name": tokenizer_config["dataset_name"], "streaming": True}
     if "data_files_prefixes" in tokenizer_config:
