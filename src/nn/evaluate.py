@@ -68,9 +68,7 @@ def calculate_fitness(
         device=device
     )
 
-    original_device = next(individual.graph_module.parameters()).device if list(individual.graph_module.parameters()) else torch.device('cpu')
-    if original_device.type == 'cpu':
-        individual.graph_module.to('cpu')  # Move the model back to CPU, since we're not going to run it again
+    individual.graph_module.to('cpu')  # Move the model back to CPU, since we're not going to run it again
 
     # Return negative perplexity as fitness (lower perplexity = better)
     return -perplexity
