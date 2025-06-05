@@ -21,9 +21,8 @@ def generate_initial_population(
     Args:
         population_size (int): Number of models to generate
         vocab_size (int): Size of the vocabulary
-        block_size (int): Maximum sequence length
-        device (str): Device to place models on
-        
+        gpt_config_params (dict): Parameters for the GPT config
+        train_config_params (dict): Parameters for the train config
     Returns:
         list: List of GPT models with random configurations
     """
@@ -54,12 +53,9 @@ def create_random_gpt_config(
     Args:
         vocab_size (int): Size of the vocabulary
         block_size (int): Maximum sequence length
-        min_layers (int): Minimum number of transformer layers
-        max_layers (int): Maximum number of transformer layers
-        min_heads (int): Minimum number of attention heads
-        max_heads (int): Maximum number of attention heads
-        min_embed (int): Minimum embedding dimension
-        max_embed (int): Maximum embedding dimension
+        layer_bounds (tuple[int, int]): Minimum and maximum number of transformer layers
+        head_bounds (tuple[int, int]): Minimum and maximum number of attention heads
+        embed_bounds (tuple[int, int]): Minimum and maximum embedding dimension
     
     Returns:
         CN: Configuration object for GPT model

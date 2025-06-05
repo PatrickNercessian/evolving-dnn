@@ -34,18 +34,17 @@ def calculate_fitness(
     Returns:
         float: Fitness score (higher is better)
     """
-    copied_individual = copy.deepcopy(individual)
         
     # Create train dataset
     train_dataset = HuggingFaceIterableDataset(
         iterable_train_dataset,
         tokenizer,
         block_size,
-        max_samples=num_train_steps * copied_individual.train_config.batch_size * 2  # Provide enough samples
+        max_samples=num_train_steps * individual.train_config.batch_size * 2  # Provide enough samples
     )
     
     # Run training
-    trainer = Trainer(copied_individual.train_config, copied_individual.graph_module, train_dataset)
+    trainer = Trainer(individual.train_config, individual.graph_module, train_dataset)
     def batch_end_callback(trainer):
         # TODO need to pick max iter_dt based on the model sizes.
         if trainer.iter_dt > 20000:  # if it even has one that's this bad, just kill it
@@ -62,12 +61,16 @@ def calculate_fitness(
 
     # Calculate perplexity on the validation set
     perplexity = calculate_perplexity(
-        copied_individual.graph_module, 
+        individual.graph_module, 
         iterable_test_dataset,
         tokenizer,
         block_size,
         device=device
     )
+
+    original_device = next(individual.graph_module.parameters()).device if list(individual.graph_module.parameters()) else torch.device('cpu')
+    if original_device.type == 'cpu':
+        individual.graph_module.to('cpu')  # Move the model back to CPU, since we're not going to run it again
 
     # Return negative perplexity as fitness (lower perplexity = better)
     return -perplexity

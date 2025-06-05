@@ -43,7 +43,7 @@ class Trainer:
         if config.device == 'auto':
             if torch.cuda.is_available():
                 self.device = 'cuda'
-            # elif torch.backends.mps.is_available():
+            # elif torch.backends.mps.is_available(): # TODO this doesn't work with adapative avg pooling having non-integer multiples
             #     print("MPS available")
             #     self.device = 'mps'
             else:

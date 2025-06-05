@@ -1,6 +1,3 @@
-import logging
-
-import torch
 import torch.fx
 
 class NeuralNetworkIndividualGraphModule(torch.fx.GraphModule):
@@ -54,25 +51,7 @@ class NeuralNetworkIndividualGraphModule(torch.fx.GraphModule):
         return optimizer
 
     def __deepcopy__(self, memo):
-        # Store original device
-        original_device = next(self.parameters()).device if list(self.parameters()) else torch.device('cpu')
-        
-        try:
-            # Move to CPU for safe copying
-            if original_device.type == 'cuda':
-                logging.debug("Moving to CPU for deepcopy")
-                self.cpu()
-            
-            example_input = self.example_input
-            temp = super().__deepcopy__(memo)
-            temp.example_input = example_input  # this is not a deep copy of the tensor, but it's fine for now
-            temp.to(original_device)
-            return temp
-        finally:
-            # Move original back to GPU if it was there
-            if original_device.type == 'cuda':
-                self.to(original_device)
-            
-            # Clean up GPU memory
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+        example_input = self.example_input
+        temp = super().__deepcopy__(memo)
+        temp.example_input = example_input  # this is not a deep copy of the tensor, but it's fine for now
+        return temp
