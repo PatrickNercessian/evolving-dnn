@@ -97,7 +97,6 @@ class Evolution:
             self.population.extend(new_children)
             self.historical_population.extend(new_children)
 
-            self._log_individuals()
             self._selection()
             self._log_generation()
 
@@ -152,11 +151,6 @@ class Evolution:
         )
         
         self.population = sorted_population[:self.target_population_size]  # Select top performers as parents
-
-
-    def _log_individuals(self):  # To likely be overridden by subclass
-        for individual in self.population:
-            logging.debug(f"Individual {individual.id} has fitness {individual.fitness}")
 
     def _log_generation(self):
         """Log the progress of evolution"""

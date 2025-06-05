@@ -1,5 +1,6 @@
-import copy
+import json
 import logging
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -7,6 +8,7 @@ from torch.utils.data import DataLoader
 from ..mingpt_altered.trainer import Trainer
 from .individual import NeuralNetworkIndividual
 from .dataset import HuggingFaceIterableDataset
+from .visualization import visualize_graph
 
 TOTAL_BATCHES_FOR_EVALUATION = 20
 
@@ -17,7 +19,10 @@ def calculate_fitness(
     tokenizer,
     block_size: int,
     num_train_steps: int = 100,
-    device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
+    train_configs_path: str = None,
+    graphs_path: str = None,
+    models_path: str = None,
 ) -> float:
     """
     Calculate fitness of a GPT model by training it and returning negative loss
@@ -70,8 +75,19 @@ def calculate_fitness(
 
     individual.graph_module.to('cpu')  # Move the model back to CPU, since we're not going to run it again
 
-    # Return negative perplexity as fitness (lower perplexity = better)
-    return -perplexity
+    fitness = -perplexity  # negative perplexity as fitness (lower perplexity = better) so that we can go uppies :)
+
+    try:
+        logging.debug(f"Individual {individual.id} has fitness {fitness} with train config {individual.train_config}")
+        if not train_configs_path or not graphs_path or not models_path:
+            visualize_graph(individual.graph_module, "model_graph", f"{graphs_path}/{individual.id}_graph.svg")
+            with open(f"{train_configs_path}/{individual.id}_train_config.json", "w") as f:
+                json.dump(individual.train_config.to_dict(), f, indent=4)
+            torch.save(individual.graph_module, f"{models_path}/{individual.id}_model.pt")
+    except Exception:
+        logging.exception(f"Error logging/saving individual {individual.id}")
+    
+    return fitness
 
 def calculate_perplexity(
     model: torch.nn.Module,

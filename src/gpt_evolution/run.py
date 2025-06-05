@@ -89,7 +89,16 @@ if __name__ == '__main__':
     experiment_path = evolution_config["experiment_path"]
     os.makedirs(experiment_path, exist_ok=True)
 
+
     configure_logger(experiment_path)
+
+    experiment_individuals_path = os.path.join(experiment_path, "individuals")
+    graphs_path = os.path.join(experiment_individuals_path, "graphs")
+    os.makedirs(graphs_path, exist_ok=True)
+    models_path = os.path.join(experiment_individuals_path, "models")
+    os.makedirs(models_path, exist_ok=True)
+    train_configs_path = os.path.join(experiment_individuals_path, "train_configs")
+    os.makedirs(train_configs_path, exist_ok=True)
 
     set_random_seeds(evolution_config["random_seed"])
 
@@ -139,6 +148,10 @@ if __name__ == '__main__':
             tokenizer,
             block_size=gpt_config["block_size"],
             device=train_config_params["device"],
+            experiment_individuals_path=f"{experiment_path}/individuals",
+            train_configs_path=f"{experiment_path}/train_configs",
+            graphs_path=f"{experiment_path}/graphs",
+            models_path=f"{experiment_path}/models",
         )
 
     evolution = NeuralNetworkEvolution(
