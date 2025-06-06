@@ -79,7 +79,6 @@ def create_random_gpt_config(
     config.resid_pdrop = random.uniform(0.0, 0.2)
     config.attn_pdrop = random.uniform(0.0, 0.2)
 
-    config.model_type = None
     config.is_proxy_for_fx = True
     
     return config

@@ -11,6 +11,21 @@ from .individual import NeuralNetworkIndividual
 from .visualization import visualize_graph
 
 class NeuralNetworkEvolution(Evolution):
+    def _pre_evaluation(self, individual: NeuralNetworkIndividual):
+        n_params = sum(p.numel() for p in individual.graph_module.parameters())
+        logging.debug(f"Individual {individual.id} has parameter count: {n_params}")
+        individual.param_count = n_params  # TODO use this in fitness calculation, we should minimize this
+
+    def _handle_evaluation_error(self, individual: NeuralNetworkIndividual):
+        for node in individual.graph_module.graph.nodes:
+            log_msg = f"Node {node.name} has shape: "
+            if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
+                log_msg += f"{node.meta['tensor_meta'].shape}"
+            else:
+                log_msg += "No shape found"
+            logging.debug(log_msg)
+        logging.debug(individual.graph_module.graph)
+
     def _log_individual(self, individual: NeuralNetworkIndividual):
         experiment_individuals_path = os.path.join(self.kwargs["experiment_path"], "individuals")
         train_configs_path = os.path.join(experiment_individuals_path, "train_configs")

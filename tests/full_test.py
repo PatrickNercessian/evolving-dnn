@@ -15,8 +15,6 @@ from src.mingpt_altered.utils import CfgNode as CN
 
 config = CN()
 config.vocab_size = 50257
-# config.model_type = 'gpt2'
-config.model_type = None
 config.n_layer = 2
 config.n_head = 2
 config.n_embd = 768

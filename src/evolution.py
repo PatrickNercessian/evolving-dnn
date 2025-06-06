@@ -51,9 +51,9 @@ class Evolution:
             num_generations: Number of generations to evolve
         """
         for individual in self.population:  # evaluate fitness for initial population
-            self._evaluate_and_log(individual)
+            self._evaluate(individual)
         
-        for gen in range(num_generations):
+        for gen in range(num_generations-1):  # first generation was initial_population
             self.generation = gen
 
             # Create new population through crossover and mutation
@@ -80,29 +80,29 @@ class Evolution:
                     self._log_individual(child)
                     continue
 
-                self._evaluate_and_log(child)
+                self._evaluate(child)
 
             self.population.extend(new_children)
             
             self._selection()
             self._log_generation()
 
-    def _evaluate_and_log(self, individual: Individual):
+    def _evaluate(self, individual: Individual):
         try:
+            self._pre_evaluation(individual)
             individual.fitness = self.fitness_fn(individual)
         except Exception as e:
             logging.exception(f"Error in fitness function: {e} for individual {individual.id}")
             individual.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
-            for node in individual.graph_module.graph.nodes:
-                log_msg = f"Node {node.name} has shape: "
-                if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
-                    log_msg += f"{node.meta['tensor_meta'].shape}"
-                else:
-                    log_msg += "No shape found"
-                logging.debug(log_msg)
-            logging.debug(individual.graph_module.graph)
+            self._handle_evaluation_error(individual)
                 
         self._log_individual(individual)
+
+    def _pre_evaluation(self, individual: Individual):
+        pass
+
+    def _handle_evaluation_error(self, individual: Individual):
+        pass
 
     def _log_individual(self, individual: Individual):
         """Log an individual"""
@@ -129,7 +129,7 @@ class Evolution:
         for crossover_fn, probability in self.crossover_fns_and_probabilities:
             if random.random() < probability:
                 logging.info(f"Crossover between {child.id} and {parent.id} with {crossover_fn.__name__}")
-                crossover_fn(child, parent)
+                crossover_fn(child, parent, **self.kwargs)
         return child
 
     def _mutate(self, child: Individual) -> Individual:

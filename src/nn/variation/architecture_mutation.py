@@ -15,6 +15,7 @@ from ..variation.utils import (
 
 
 def mutation_add_linear(individual):
+    existing_param_count = individual.param_count
     # Find a random node in the graph to add a linear layer after
     eligible_nodes = _get_eligible_nodes(individual)
     if not eligible_nodes:
@@ -31,6 +32,9 @@ def mutation_add_linear(individual):
         input_size = input_shape[-1]
         # Choose a reasonable output size similar to input size
         output_size = random.randint(max(1, input_size // 2), input_size * 2)
+        if input_size * output_size > existing_param_count:
+            logging.debug(f"Capping new layer to existing param count {existing_param_count}")
+            output_size = existing_param_count // input_size
         logging.debug(f"Using input_size={input_size}, output_size={output_size} from reference node shape")
     else:
         # Fallback to a safe small size if shape information is not available
@@ -64,7 +68,7 @@ def mutation_add_relu(individual):
     return individual
 
 
-def mutation_add_skip_connection(individual):
+def mutation_add_skip_connection(individual, **kwargs):
     # Find two random nodes in the graph to connect
     eligible_nodes = _get_eligible_nodes(individual)
     

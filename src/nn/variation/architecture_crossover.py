@@ -17,9 +17,11 @@ MIN_NODES = 4
 MAX_NODES = 32
 
 CROSSOVER_VISUALIZATION_DIR = "crossover_visualization"
-os.makedirs(CROSSOVER_VISUALIZATION_DIR, exist_ok=True)
 
-def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndividual):
+def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndividual, **kwargs):
+    crossover_visualization_dir = kwargs.get("experiment_path", CROSSOVER_VISUALIZATION_DIR)
+    os.makedirs(crossover_visualization_dir, exist_ok=True)
+
     subgraph_nodes = set()
     lowest_num_boundary_nodes = float('inf')
     broken_subgraphs = 0
@@ -48,11 +50,11 @@ def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndi
 
     # Visualize the graph with the subgraph highlighted
     random_int = random.randint(0, 1000000)
-    visualize_graph(parent.graph_module, "model_graph_highlighted", f"{CROSSOVER_VISUALIZATION_DIR}/{random_int}_{parent.id}_graph_highlighted.svg", highlight_nodes=subgraph_node_names)
+    visualize_graph(parent.graph_module, "model_graph_highlighted", os.path.join(crossover_visualization_dir, f"{random_int}_{parent.id}_graph_highlighted.svg"), highlight_nodes=subgraph_node_names)
 
     child.graph_module, new_node_names = insert_subgraph(child.graph_module, **insert_subgraph_kwargs)
 
-    visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", f"{CROSSOVER_VISUALIZATION_DIR}/{random_int}_{child.id}_graph_after_crossover_highlighted.svg", highlight_nodes=new_node_names)
+    visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", os.path.join(crossover_visualization_dir, f"{random_int}_{child.id}_graph_after_crossover_highlighted.svg"), highlight_nodes=new_node_names)
 
 def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     """

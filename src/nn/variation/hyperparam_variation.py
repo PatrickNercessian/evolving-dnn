@@ -68,7 +68,7 @@ def mutate_optimizer_parameters(individual: NeuralNetworkIndividual) -> NeuralNe
     logging.debug(f"Mutated optimizer parameters for weight_decay {current_wd} and grad_norm_clip {current_clip} to weight_decay {new_wd} and grad_norm_clip {new_clip}")
     individual.train_config.grad_norm_clip = float(new_clip)
 
-def crossover_batch_size(parent1_copy: NeuralNetworkIndividual, parent2: NeuralNetworkIndividual) -> NeuralNetworkIndividual:
+def crossover_batch_size(parent1_copy: NeuralNetworkIndividual, parent2: NeuralNetworkIndividual, **kwargs) -> NeuralNetworkIndividual:
     """
     Average the batch size from two parents to create a child.
     """
@@ -76,7 +76,7 @@ def crossover_batch_size(parent1_copy: NeuralNetworkIndividual, parent2: NeuralN
     logging.debug(f"Crossover batch size from {parent1_copy.train_config.batch_size} and {parent2.train_config.batch_size} to {new_batch_size}")
     parent1_copy.train_config.batch_size = new_batch_size
 
-def crossover_learning_rate(parent1_copy: NeuralNetworkIndividual, parent2: NeuralNetworkIndividual) -> NeuralNetworkIndividual:
+def crossover_learning_rate(parent1_copy: NeuralNetworkIndividual, parent2: NeuralNetworkIndividual, **kwargs) -> NeuralNetworkIndividual:
     """
     Average the learning rate from two parents to create a child.
     """
@@ -84,7 +84,7 @@ def crossover_learning_rate(parent1_copy: NeuralNetworkIndividual, parent2: Neur
     logging.debug(f"Crossover learning rate from {parent1_copy.train_config.learning_rate} and {parent2.train_config.learning_rate} to {new_lr}")
     parent1_copy.train_config.learning_rate = new_lr
 
-def crossover_learning_rate_scheduler(parent1_copy: NeuralNetworkIndividual, parent2: NeuralNetworkIndividual) -> NeuralNetworkIndividual:
+def crossover_learning_rate_scheduler(parent1_copy: NeuralNetworkIndividual, parent2: NeuralNetworkIndividual, **kwargs) -> NeuralNetworkIndividual:
     """
     Average the learning rate scheduler parameters from two parents to create a child.
     """
@@ -93,7 +93,7 @@ def crossover_learning_rate_scheduler(parent1_copy: NeuralNetworkIndividual, par
     logging.debug(f"Crossover learning rate scheduler betas for beta1s {parent1_copy.train_config.betas[0]} and {parent2.train_config.betas[0]} and beta2s {parent1_copy.train_config.betas[1]} and {parent2.train_config.betas[1]} to beta1 {new_beta1} and beta2 {new_beta2}")
     parent1_copy.train_config.betas = (new_beta1, new_beta2)
 
-def crossover_optimizer_parameters(parent1_copy: NeuralNetworkIndividual, parent2: NeuralNetworkIndividual) -> NeuralNetworkIndividual:
+def crossover_optimizer_parameters(parent1_copy: NeuralNetworkIndividual, parent2: NeuralNetworkIndividual, **kwargs) -> NeuralNetworkIndividual:
     """
     Average the optimizer parameters from two parents to create a child.
     """

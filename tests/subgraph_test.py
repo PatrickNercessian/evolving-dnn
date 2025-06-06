@@ -19,8 +19,6 @@ MAX_NODES = 32
 if __name__ == "__main__":
     config = CN()
     config.vocab_size = 50257
-    # config.model_type = 'gpt2'
-    config.model_type = None
     config.n_layer = 2
     config.n_head = 2
     config.n_embd = 768
