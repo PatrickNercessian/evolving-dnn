@@ -154,7 +154,6 @@ if __name__ == '__main__':
             tokenizer,
             block_size=gpt_config["block_size"],
             device=train_config_params["device"],
-            experiment_individuals_path=f"{experiment_path}/individuals",
             train_configs_path=f"{experiment_path}/train_configs",
             graphs_path=f"{experiment_path}/graphs",
             models_path=f"{experiment_path}/models",
