@@ -88,7 +88,7 @@ class Evolution:
             self._log_generation()
 
     def _evaluate_and_log(self, individual: Individual):
-        try:  # TODO we should do this same try-except for the initial population. We can abstract it to a function.
+        try:
             individual.fitness = self.fitness_fn(individual)
         except Exception as e:
             logging.exception(f"Error in fitness function: {e} for individual {individual.id}")
