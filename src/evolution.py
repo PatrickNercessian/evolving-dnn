@@ -31,7 +31,6 @@ class Evolution:
             num_children_per_generation: Number of children to generate per generation
         """
         self.population = population
-        self.historical_population = copy.copy(population)
         self.fitness_fn = fitness_fn
         self.crossover_instead_of_mutation_rate = crossover_instead_of_mutation_rate
         self.mutation_fns_and_probabilities = mutation_fns_and_probabilities
@@ -52,7 +51,7 @@ class Evolution:
             num_generations: Number of generations to evolve
         """
         for individual in self.population:  # evaluate fitness for initial population
-            individual.fitness = self.fitness_fn(individual)
+            self._evaluate_and_log(individual)
         
         for gen in range(num_generations):
             self.generation = gen
@@ -78,27 +77,36 @@ class Evolution:
                 new_children.append(child)
 
                 if not successful_child:
+                    self._log_individual(child)
                     continue
 
-                try:
-                    child.fitness = self.fitness_fn(child)
-                except Exception as e:
-                    logging.exception(f"Error in fitness function: {e} for child {child.id}")
-                    child.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
-                    for node in child.graph_module.graph.nodes:
-                        log_msg = f"Node {node.name} has shape: "
-                        if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
-                            log_msg += f"{node.meta['tensor_meta'].shape}"
-                        else:
-                            log_msg += "No shape found"
-                        logging.debug(log_msg)
-                    logging.debug(child.graph_module.graph)
+                self._evaluate_and_log(child)
 
             self.population.extend(new_children)
-            self.historical_population.extend(new_children)
-
+            
             self._selection()
             self._log_generation()
+
+    def _evaluate_and_log(self, individual: Individual):
+        try:  # TODO we should do this same try-except for the initial population. We can abstract it to a function.
+            individual.fitness = self.fitness_fn(individual)
+        except Exception as e:
+            logging.exception(f"Error in fitness function: {e} for individual {individual.id}")
+            individual.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
+            for node in individual.graph_module.graph.nodes:
+                log_msg = f"Node {node.name} has shape: "
+                if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
+                    log_msg += f"{node.meta['tensor_meta'].shape}"
+                else:
+                    log_msg += "No shape found"
+                logging.debug(log_msg)
+            logging.debug(individual.graph_module.graph)
+                
+        self._log_individual(individual)
+
+    def _log_individual(self, individual: Individual):
+        """Log an individual"""
+        logging.debug(f"Individual {individual.id} has fitness {individual.fitness}")
 
     def _copy_individual(self, individual: Individual) -> Individual:
         """

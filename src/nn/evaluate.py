@@ -76,16 +76,6 @@ def calculate_fitness(
     individual.graph_module.to('cpu')  # Move the model back to CPU, since we're not going to run it again
 
     fitness = -perplexity  # negative perplexity as fitness (lower perplexity = better) so that we can go uppies :)
-
-    try:
-        logging.debug(f"Individual {individual.id} has fitness {fitness} with train config {individual.train_config}")
-        if not train_configs_path or not graphs_path or not models_path:
-            visualize_graph(individual.graph_module, "model_graph", f"{graphs_path}/{individual.id}_graph.svg")
-            with open(f"{train_configs_path}/{individual.id}_train_config.json", "w") as f:
-                json.dump(individual.train_config.to_dict(), f, indent=4)
-            torch.save(individual.graph_module, f"{models_path}/{individual.id}_model.pt")
-    except Exception:
-        logging.exception(f"Error logging/saving individual {individual.id}")
     
     return fitness
 

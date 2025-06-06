@@ -35,7 +35,7 @@ RANDOM_SEED = 42
 
 def configure_logger(experiment_path):
     debug_log_file = os.path.join(experiment_path, "evolution_run_debug.log")
-    warning_log_file = os.path.join(experiment_path, "evolution_run.log")
+    info_log_file = os.path.join(experiment_path, "evolution_run.log")
     
     # Configure root logger
     logger = logging.getLogger()
@@ -50,9 +50,9 @@ def configure_logger(experiment_path):
     debug_handler.setFormatter(formatter)
     
     # Handler for WARNING and above only - goes to warnings file
-    warning_handler = logging.FileHandler(warning_log_file)
-    warning_handler.setLevel(logging.WARNING)
-    warning_handler.setFormatter(formatter)
+    info_handler = logging.FileHandler(info_log_file)
+    info_handler.setLevel(logging.INFO)
+    info_handler.setFormatter(formatter)
     
     # Console handler for INFO and above
     console_handler = logging.StreamHandler()
@@ -61,7 +61,7 @@ def configure_logger(experiment_path):
     
     # Add handlers to logger
     logger.addHandler(debug_handler)
-    logger.addHandler(warning_handler)
+    logger.addHandler(info_handler)
     logger.addHandler(console_handler)
 
     # Silence verbose loggers
@@ -95,16 +95,7 @@ if __name__ == '__main__':
 
     os.makedirs(experiment_path, exist_ok=True)
 
-
     configure_logger(experiment_path)
-
-    experiment_individuals_path = os.path.join(experiment_path, "individuals")
-    graphs_path = os.path.join(experiment_individuals_path, "graphs")
-    os.makedirs(graphs_path, exist_ok=True)
-    models_path = os.path.join(experiment_individuals_path, "models")
-    os.makedirs(models_path, exist_ok=True)
-    train_configs_path = os.path.join(experiment_individuals_path, "train_configs")
-    os.makedirs(train_configs_path, exist_ok=True)
 
     set_random_seeds(evolution_config["random_seed"])
 
@@ -154,9 +145,6 @@ if __name__ == '__main__':
             tokenizer,
             block_size=gpt_config["block_size"],
             device=train_config_params["device"],
-            train_configs_path=f"{experiment_path}/train_configs",
-            graphs_path=f"{experiment_path}/graphs",
-            models_path=f"{experiment_path}/models",
         )
 
     evolution = NeuralNetworkEvolution(
@@ -176,6 +164,6 @@ if __name__ == '__main__':
         ],
         target_population_size=evolution_config["target_population_size"],
         num_children_per_generation=evolution_config["num_children_per_generation"],
-        experiment_individuals_path=f"{experiment_path}/individuals",
+        experiment_path=experiment_path
     )
     evolution.run_evolution(evolution_config["num_generations"])
