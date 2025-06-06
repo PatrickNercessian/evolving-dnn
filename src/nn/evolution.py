@@ -22,13 +22,13 @@ class NeuralNetworkEvolution(Evolution):
         
         try:
             logging.debug(f"Individual {individual.id} has fitness {individual.fitness} with train config {individual.train_config}")
-            if not train_configs_path or not graphs_path or not models_path:
-                with open(f"{train_configs_path}/{individual.id}_train_config.json", "w") as train_config_file:
+            if train_configs_path and graphs_path and models_path:
+                with open(os.path.join(train_configs_path, f"{individual.id}_train_config.json"), "w") as train_config_file:
                     json.dump(individual.train_config.to_dict(), train_config_file, indent=4)
                 
-                visualize_graph(individual.graph_module, "model_graph", f"{graphs_path}/{individual.id}_graph.svg")
+                visualize_graph(individual.graph_module, "model_graph", os.path.join(graphs_path, f"{individual.id}_graph.svg"))
                 
-                torch.save(individual.graph_module, f"{models_path}/{individual.id}_model.pt")
+                torch.save(individual.graph_module, os.path.join(models_path, f"{individual.id}_model.pt"))
         except Exception:
             logging.exception(f"Error logging/saving individual {individual.id}")
 
