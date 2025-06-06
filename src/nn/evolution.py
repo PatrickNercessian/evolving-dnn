@@ -15,6 +15,7 @@ class NeuralNetworkEvolution(Evolution):
         n_params = sum(p.numel() for p in individual.graph_module.parameters())
         logging.debug(f"Individual {individual.id} has parameter count: {n_params}")
         individual.param_count = n_params  # TODO use this in fitness calculation, we should minimize this
+        individual.graph_module.to('cpu')
 
     def _handle_evaluation_error(self, individual: NeuralNetworkIndividual):
         for node in individual.graph_module.graph.nodes:
