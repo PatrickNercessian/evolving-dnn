@@ -10,8 +10,8 @@ import torch.nn.functional as F
 from src.nn.core import get_graph, add_node, remove_node, shape_prop
 from src.nn.visualization import visualize_graph
 
-from mingpt.model import GPT
-from mingpt.utils import CfgNode as CN
+from src.mingpt_altered.model import GPT
+from src.mingpt_altered.utils import CfgNode as CN
 
 config = CN()
 config.vocab_size = 50257

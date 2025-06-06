@@ -1,9 +1,10 @@
 import copy
+import logging
+import math
 import random
 from typing import Callable
-import traceback
 
-from src.individual import Individual
+from .individual import Individual
 
 class Evolution:
     def __init__(
@@ -30,7 +31,6 @@ class Evolution:
             num_children_per_generation: Number of children to generate per generation
         """
         self.population = population
-        self.historical_population = copy.copy(population)
         self.fitness_fn = fitness_fn
         self.crossover_instead_of_mutation_rate = crossover_instead_of_mutation_rate
         self.mutation_fns_and_probabilities = mutation_fns_and_probabilities
@@ -51,7 +51,7 @@ class Evolution:
             num_generations: Number of generations to evolve
         """
         for individual in self.population:  # evaluate fitness for initial population
-            individual.fitness = self.fitness_fn(individual)
+            self._evaluate_and_log(individual)
         
         for gen in range(num_generations):
             self.generation = gen
@@ -60,7 +60,7 @@ class Evolution:
             new_children = []
             while len(new_children) < self.num_children_per_generation:
                 parent1, parent2 = random.sample(self.population, 2)  # TODO should this sample with or without replacement?
-                child = copy.deepcopy(parent1)
+                child = self._copy_individual(parent1)
                 try:
                     if random.random() < self.crossover_instead_of_mutation_rate:
                         child = self._crossover(child, parent2)
@@ -68,52 +68,51 @@ class Evolution:
                         child = self._mutate(child)
                     successful_child = True
                 except Exception as e:
-                    print(f"Error in crossover or mutation: {e}")
-                    traceback.print_exc()
+                    logging.exception("Error in crossover or mutation")
                     child.fitness = float('-inf')
                     successful_child = False
                 child.id = self.id_counter
-                print(f"Created child {child.id}")
+                logging.info(f"Created child {child.id}")
                 self.id_counter += 1
                 new_children.append(child)
 
                 if not successful_child:
+                    self._log_individual(child)
                     continue
 
-                try:
-                    child.fitness = self.fitness_fn(child)
-                    if child.fitness == float('nan'):
-                        raise Exception("Fitness is NaN")
-                except Exception as e:
-                    import time
-                    print(f"Error in fitness function: {e} for child {child.id} at time {time.time()}")
-                    traceback.print_exc()
-                    child.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
-                    for node in child.graph_module.graph.nodes:
-                        print(f"Node {node.name} has shape:", end=" ")
-                        if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
-                            print(node.meta['tensor_meta'].shape)
-                        else:
-                            print("No shape found")
-                    print(child.graph_module.graph)
+                self._evaluate_and_log(child)
 
             self.population.extend(new_children)
-            self.historical_population.extend(new_children)
-
-            self._log_individuals()
+            
             self._selection()
             self._log_generation()
 
-    def _selection(self) -> list[Individual]:
-        """Select individuals for breeding based on fitness scores"""
-        # Sort population by fitness
-        sorted_population = sorted(
-            self.population,
-            key=lambda individual: individual.fitness,
-            reverse=True
-        )
-        
-        self.population = sorted_population[:self.target_population_size]  # Select top performers as parents
+    def _evaluate_and_log(self, individual: Individual):
+        try:
+            individual.fitness = self.fitness_fn(individual)
+        except Exception as e:
+            logging.exception(f"Error in fitness function: {e} for individual {individual.id}")
+            individual.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
+            for node in individual.graph_module.graph.nodes:
+                log_msg = f"Node {node.name} has shape: "
+                if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
+                    log_msg += f"{node.meta['tensor_meta'].shape}"
+                else:
+                    log_msg += "No shape found"
+                logging.debug(log_msg)
+            logging.debug(individual.graph_module.graph)
+                
+        self._log_individual(individual)
+
+    def _log_individual(self, individual: Individual):
+        """Log an individual"""
+        logging.debug(f"Individual {individual.id} has fitness {individual.fitness}")
+
+    def _copy_individual(self, individual: Individual) -> Individual:
+        """
+        Copy an individual
+        """
+        return copy.deepcopy(individual)
 
     def _crossover(self, child: Individual, parent: Individual) -> Individual:
         """
@@ -126,10 +125,10 @@ class Evolution:
         Returns:
             Child
         """
-        print(f"Crossover between {child.id} and {parent.id}")
+        logging.info(f"Crossover between {child.id} and {parent.id}")
         for crossover_fn, probability in self.crossover_fns_and_probabilities:
             if random.random() < probability:
-                print(f"Crossover between {child.id} and {parent.id} with {crossover_fn.__name__}")
+                logging.info(f"Crossover between {child.id} and {parent.id} with {crossover_fn.__name__}")
                 crossover_fn(child, parent)
         return child
 
@@ -143,15 +142,23 @@ class Evolution:
         Returns:
             Mutated child individual
         """
-        print(f"Mutating {child.id}")
+        logging.info(f"Mutating {child.id}")
         for mutation_fn, probability in self.mutation_fns_and_probabilities:
             if random.random() < probability:
+                logging.info(f"Mutating {child.id} with {mutation_fn.__name__}")
                 mutation_fn(child)
         return child
-
-    def _log_individuals(self):  # To likely be overridden by subclass
-        for individual in self.population:
-            print(f"Individual {individual.id} has fitness {individual.fitness}")
+    
+    def _selection(self) -> list[Individual]:
+        """Select individuals for breeding based on fitness scores"""
+        # Sort population by fitness
+        sorted_population = sorted(
+            self.population,
+            key=lambda individual: (not math.isnan(individual.fitness), individual.fitness),
+            reverse=True
+        )
+        
+        self.population = sorted_population[:self.target_population_size]  # Select top performers as parents
 
     def _log_generation(self):
         """Log the progress of evolution"""
@@ -160,7 +167,7 @@ class Evolution:
         fitness_sum = 0
         
         for individual in self.population:
-            print(f"Individual {individual.id} survived")
+            logging.info(f"Individual {individual.id} survived")
             fitness_sum += individual.fitness
             if individual.fitness > current_best_fitness_in_gen:
                 current_best_fitness_in_gen = individual.fitness
@@ -172,8 +179,8 @@ class Evolution:
             self.best_fitness = current_best_fitness_in_gen
             self.best_individual = current_best_individual_in_gen
         
-        print(f"Generation {self.generation}:")
-        print(f"  Max Fitness in Gen: {current_best_fitness_in_gen:.4f}")
-        print(f"  Avg Fitness in Gen: {avg_fitness:.4f}")
+        logging.info(f"Generation {self.generation}:")
+        logging.info(f"  Max Fitness in Gen: {current_best_fitness_in_gen:.4f}")
+        logging.info(f"  Avg Fitness in Gen: {avg_fitness:.4f}")
         if self.best_individual:
-            print(f"  Best Individual Overall (fitness: {self.best_individual.fitness}, id: {self.best_individual.id}): {self.best_individual.train_config}")
+            logging.info(f"  Best Individual Overall (fitness: {self.best_individual.fitness}, id: {self.best_individual.id}): {self.best_individual.train_config}")
