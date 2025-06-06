@@ -20,9 +20,6 @@ def calculate_fitness(
     block_size: int,
     num_train_steps: int = 100,
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
-    train_configs_path: str = None,
-    graphs_path: str = None,
-    models_path: str = None,
 ) -> float:
     """
     Calculate fitness of a GPT model by training it and returning negative loss

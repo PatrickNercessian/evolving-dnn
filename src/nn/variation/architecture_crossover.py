@@ -19,7 +19,7 @@ MAX_NODES = 32
 CROSSOVER_VISUALIZATION_DIR = "crossover_visualization"
 
 def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndividual, **kwargs):
-    crossover_visualization_dir = kwargs.get("experiment_path", CROSSOVER_VISUALIZATION_DIR)
+    crossover_visualization_dir = os.path.join(kwargs.get("experiment_path", ""), CROSSOVER_VISUALIZATION_DIR)
     os.makedirs(crossover_visualization_dir, exist_ok=True)
 
     subgraph_nodes = set()
@@ -275,6 +275,7 @@ def insert_subgraph(
             # Create a deep copy to avoid sharing parameters with the parent
             original_module = node.graph.owning_module.get_submodule(node.target)
             copied_module = copy.deepcopy(original_module)  # TODO unsure if this is necessary
+            # TODO do we need to also force it to the same device?
             target_graph_module.add_submodule(new_module_name, m=copied_module)
             new_node_names.add(new_module_name)
         elif node.op == "get_attr":
