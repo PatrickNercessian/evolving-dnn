@@ -86,13 +86,13 @@ if __name__ == '__main__':
 
     with open(args.config, 'r') as f:
         run_config = json.load(f)
+    experiment_path = args.experiment_path
 
     tokenizer_config = run_config["tokenizer"]
     evolution_config = run_config["evolution"]
     training_config = run_config["training"]
     gpt_config = run_config["gpt_config"]
 
-    experiment_path = evolution_config["experiment_path"]
     os.makedirs(experiment_path, exist_ok=True)
 
 
