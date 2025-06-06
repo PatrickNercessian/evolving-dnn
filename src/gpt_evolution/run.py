@@ -76,6 +76,12 @@ if __name__ == '__main__':
         default="src/gpt_evolution/default_run_config.json",
         help="Path to the run configuration JSON file."
     )
+    parser.add_argument(
+        "--experiment_path",
+        type=str,
+        default="./default_experiment_path",
+        help="Path to the experiment directory."
+    )
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:

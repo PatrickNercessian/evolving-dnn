@@ -19,7 +19,6 @@
       "num_children_per_generation": 10,
       "num_generations": 10,
       "crossover_instead_of_mutation_rate": 0.5,
-      "experiment_path": "experiments/test8",
       "mutation_probabilities": {
         "mutate_batch_size": 0.2,
         "mutate_learning_rate": 0.2,
