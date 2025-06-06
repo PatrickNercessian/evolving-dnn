@@ -71,6 +71,7 @@ def calculate_fitness(
     )
 
     individual.graph_module.to('cpu')  # Move the model back to CPU, since we're not going to run it again
+    if device == 'cuda': torch.cuda.empty_cache()
 
     fitness = -perplexity  # negative perplexity as fitness (lower perplexity = better) so that we can go uppies :)
     

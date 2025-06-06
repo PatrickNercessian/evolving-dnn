@@ -26,6 +26,8 @@ class NeuralNetworkEvolution(Evolution):
             logging.debug(log_msg)
         logging.debug(individual.graph_module.graph)
         individual.graph_module.to('cpu')
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def _log_individual(self, individual: NeuralNetworkIndividual):
         experiment_individuals_path = os.path.join(self.kwargs["experiment_path"], "individuals")
