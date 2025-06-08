@@ -94,8 +94,11 @@ class Evolution:
         except Exception as e:
             logging.exception(f"Error in fitness function: {e} for individual {individual.id}")
             individual.fitness = float('-inf')  # Lowest possible fitness since fitness is negative perplexity
-            self._handle_evaluation_error(individual)
-                
+            try:
+                self._handle_evaluation_error(individual)
+            except Exception as e:
+                logging.exception(f"Error in handle evaluation error: {e} for individual {individual.id}")
+        
         self._log_individual(individual)
 
     def _pre_evaluation(self, individual: Individual):
