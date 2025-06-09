@@ -21,6 +21,11 @@ class NeuralNetworkEvolution(Evolution):
             log_msg = f"Node {node.name} has shape: "
             if "tensor_meta" in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
                 log_msg += f"{node.meta['tensor_meta'].shape}"
+                try:
+                    # Print which device the tensor is on
+                    log_msg += f" on device {node.target.weight.device}"
+                except Exception:
+                    pass
             else:
                 log_msg += "No shape found"
             logging.debug(log_msg)
