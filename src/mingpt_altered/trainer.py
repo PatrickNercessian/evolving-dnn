@@ -120,7 +120,7 @@ class Trainer:
 
             # backprop and update the parameters
             model.zero_grad(set_to_none=True)
-            self.loss.to(self.device)
+            self.loss = self.loss.to(self.device)  # TODO unsure if necessary
             self.loss.backward()
             if self.device == 'cuda': torch.cuda.synchronize()  # TODO remove all syncs
             torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
