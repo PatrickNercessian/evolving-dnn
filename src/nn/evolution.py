@@ -13,7 +13,7 @@ from .visualization import visualize_graph
 class NeuralNetworkEvolution(Evolution):
     def _pre_evaluation(self, individual: NeuralNetworkIndividual):
         n_params = sum(p.numel() for p in individual.graph_module.parameters())
-        logging.debug(f"Individual {individual.id} has parameter count: {n_params}")
+        logging.debug(f"Individual {individual.id} has parameter count: {n_params:,}")
         individual.param_count = n_params  # TODO use this in fitness calculation, we should minimize this
 
     def _handle_evaluation_error(self, individual: NeuralNetworkIndividual):
@@ -23,7 +23,12 @@ class NeuralNetworkEvolution(Evolution):
                 log_msg += f"{node.meta['tensor_meta'].shape}"
                 try:
                     # Print which device the tensor is on
-                    log_msg += f" on device {node.target.weight.device}"
+                    if node.op == "call_module":
+                        submodule = individual.graph_module.get_submodule(node.target)
+                        # Get device from first parameter if available
+                        params = list(submodule.parameters())
+                        if params:
+                            log_msg += f" on device {params[0].device}"
                 except Exception:
                     pass
             else:

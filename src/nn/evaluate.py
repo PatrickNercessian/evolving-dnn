@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 from ..mingpt_altered.trainer import Trainer
 from .individual import NeuralNetworkIndividual
 from .dataset import HuggingFaceIterableDataset
-from .visualization import visualize_graph
 
 TOTAL_BATCHES_FOR_EVALUATION = 20
 
@@ -36,7 +35,7 @@ def calculate_fitness(
     Returns:
         float: Fitness score (higher is better)
     """
-        
+    
     # Create train dataset
     train_dataset = HuggingFaceIterableDataset(
         iterable_train_dataset,
