@@ -6,7 +6,7 @@ git clone https://www.github.com/PatrickNercessian/evolving-dnn && \
 cd evolving-dnn/ && \
 git checkout refactor-for-experiments && \
 chmod +x run_experiment.sh && \
-./run_experiment.sh /workspace/experiments/test21
+./run_experiment.sh /workspace/experiments/test24
 
 
 To get the output files locally:
