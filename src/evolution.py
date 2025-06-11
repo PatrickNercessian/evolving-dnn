@@ -113,7 +113,7 @@ class Evolution:
 
     def _log_individual(self, individual: Individual):
         """Log an individual"""
-        logging.debug(f"Individual {individual.id} has fitness {individual.fitness}")
+        logging.info(f"Individual {individual.id} has fitness {individual.fitness}")
 
     def _copy_individual(self, individual: Individual) -> Individual:
         """

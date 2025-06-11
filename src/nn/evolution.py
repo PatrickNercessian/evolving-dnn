@@ -15,8 +15,6 @@ class NeuralNetworkEvolution(Evolution):
         n_params = sum(p.numel() for p in individual.graph_module.parameters())
         logging.debug(f"Individual {individual.id} has parameter count: {n_params:,}")
         individual.param_count = n_params  # TODO use this in fitness calculation, we should minimize this
-        os.makedirs(os.path.join(self.kwargs["experiment_path"], "models"), exist_ok=True)
-        torch.save(individual.graph_module, os.path.join(self.kwargs["experiment_path"], "models", f"{individual.id}_model.pt"))  # TODO remove this once cuda error issue is fixed
 
     def _handle_evaluation_error(self, individual: NeuralNetworkIndividual):
         for node in individual.graph_module.graph.nodes:
@@ -51,7 +49,7 @@ class NeuralNetworkEvolution(Evolution):
             os.makedirs(path, exist_ok=True)
         
         try:
-            logging.debug(f"Individual {individual.id} has fitness {individual.fitness} with train config {individual.train_config}")
+            logging.info(f"Individual {individual.id} has fitness {individual.fitness}")
             if train_configs_path and graphs_path and models_path:
                 with open(os.path.join(train_configs_path, f"{individual.id}_train_config.json"), "w") as train_config_file:
                     json.dump(individual.train_config.to_dict(), train_config_file, indent=4)
@@ -59,7 +57,7 @@ class NeuralNetworkEvolution(Evolution):
                 if self.visualize_graphs:
                     visualize_graph(individual.graph_module, "model_graph", os.path.join(graphs_path, f"{individual.id}_graph.svg"))
                 
-                # torch.save(individual.graph_module, os.path.join(models_path, f"{individual.id}_model.pt"))  # TODO uncomment once cuda error issue is fixed
+                torch.save(individual.graph_module, os.path.join(models_path, f"{individual.id}_model.pt"))
         except Exception:
             logging.exception(f"Error logging/saving individual {individual.id}")
 
