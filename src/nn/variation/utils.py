@@ -202,7 +202,7 @@ class ReshapeModule(nn.Module):
     def forward(self, x):
         return x.reshape(-1, *self.target_size)
 
-def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
+def adapt_node_shape(graph, node, current_size, target_size, target_user=None, try_linear_adapter=True):
     """
     Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
     
@@ -212,6 +212,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
         current_size: Current size of the node's output, no batch dimension
         target_size: Desired size of the node's output, no batch dimension
         target_user: Optional specific node that should use the adapted output. If None, all users will be updated.
+        try_linear_adapter: If True, try using a single linear layer instead of flatten->adapt->unflatten pattern
     Returns:
         graph: The modified graph
         adapted_node: The node after shape adaptation
@@ -228,7 +229,14 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     
     # Handle 1D to 1D case directly
     if current_dims == 1 and target_dims == 1:
-        return _adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user)
+        if try_linear_adapter:
+            return add_specific_node(
+                graph,
+                node,
+                nn.Linear(current_size, target_size),
+                target_user=target_user
+            )
+        return _adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user=target_user)
     
     # Calculate total elements
     current_total = math.prod(current_size)
@@ -236,30 +244,34 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     
     # If total elements are the same, just reshape and return
     if current_total == target_total:
-        graph, reshape_node = add_specific_node(
+        return add_specific_node(
             graph,
             node,
             ReshapeModule(target_size),
             target_user=target_user
         )
-        return graph, reshape_node
     
-    # Start with the original node
-    current_node = node
+    if try_linear_adapter and current_size[:-1] == target_size[:-1]:  # Only use linear adapter if all but last dims are the same
+        return add_specific_node(
+            graph,
+            node,
+            nn.Linear(current_size[-1], target_size[-1]),
+            target_user=target_user
+        )
     
     # Step 1: Flatten if starting from multi-dimensional (2+:1 or 2+:2+)
     if current_dims > 1:
-        graph, current_node = add_specific_node(
+        graph, node = add_specific_node(
             graph, 
-            current_node, 
+            node, 
             nn.Flatten(start_dim=1, end_dim=-1),
             target_user=target_user
         )
     
     # Step 2: Adapt tensor size (total elements differ, so this is always needed)
-    graph, current_node = _adapt_tensor_size(
+    graph, node = _adapt_tensor_size(
         graph, 
-        current_node, 
+        node, 
         current_total, 
         target_total, 
         target_user=target_user
@@ -267,14 +279,14 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     
     # Step 3: Unflatten if ending with multi-dimensional (1:2+ or 2+:2+)
     if target_dims > 1:
-        graph, current_node = add_specific_node(
+        graph, node = add_specific_node(
             graph, 
-            current_node, 
+            node, 
             nn.Unflatten(dim=1, unflattened_size=target_size),
             target_user=target_user
         )
     
-    return graph, current_node
+    return graph, node
 
 def add_branch_nodes(graph: NeuralNetworkIndividualGraphModule, reference_node, branch1_module, branch2_module):
     """

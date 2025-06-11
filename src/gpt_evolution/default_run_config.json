@@ -31,10 +31,11 @@
         "mutation_remove_node": 0.2
       },
       "crossover_probabilities": {
-        "crossover_batch_size": 0.3,
-        "crossover_learning_rate": 0.3,
-        "crossover_learning_rate_scheduler": 0.3,
-        "crossover_optimizer_parameters": 0.3
+        "crossover_subgraph": 0.35,
+        "crossover_batch_size": 0.35,
+        "crossover_learning_rate": 0.35,
+        "crossover_learning_rate_scheduler": 0.35,
+        "crossover_optimizer_parameters": 0.35
       }
     },
     "gpt_config": {
