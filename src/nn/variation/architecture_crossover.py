@@ -275,6 +275,8 @@ def insert_subgraph(
             # Create a deep copy to avoid sharing parameters with the parent
             original_module = node.graph.owning_module.get_submodule(node.target)
             copied_module = copy.deepcopy(original_module)  # TODO unsure if this is necessary
+            if hasattr(copied_module, "reset_parameters"):  # TODO before these two lines were added, the model trained so fast. Interesting finding we can maybe explore more.
+                copied_module.reset_parameters()
             # TODO do we need to also force it to the same device?
             target_graph_module.add_submodule(new_module_name, m=copied_module)
             new_node_names.add(new_module_name)
