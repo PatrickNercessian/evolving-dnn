@@ -11,5 +11,5 @@ def set_random_seeds(seed: int):
     torch.cuda.manual_seed(seed)  # For CUDA operations
     torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
     # For deterministic behavior (may impact performance)
-    torch.backends.cudnn.deterministic = True  # TODO revisit these for full runs
-    torch.backends.cudnn.benchmark = False
+    # torch.backends.cudnn.deterministic = True  # TODO revisit these for full runs
+    # torch.backends.cudnn.benchmark = False

@@ -45,7 +45,7 @@
       "embed_bounds": [128, 512]
     },
     "training": {
-      "max_iters": 100,
+      "max_iters": 1000,
       "device": "cuda",
       "validation_batch_size": 32
     }
