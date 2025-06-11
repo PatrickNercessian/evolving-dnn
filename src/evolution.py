@@ -56,7 +56,8 @@ class Evolution:
         for individual in self.population:  # evaluate fitness for initial population
             self._evaluate(individual)
         
-        for gen in range(num_generations-1):  # first generation was initial_population
+        self._log_generation()
+        for gen in range(1, num_generations):  # first generation was initial_population
             self.generation = gen
 
             # Create new population through crossover and mutation

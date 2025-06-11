@@ -82,11 +82,18 @@ if __name__ == '__main__':
         default="./default_experiment_path",
         help="Path to the experiment directory."
     )
+    parser.add_argument(
+        "--tokenizer_path",
+        type=str,
+        default="",
+        help="Path to the tokenizer file."
+    )
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
         run_config = json.load(f)
     experiment_path = args.experiment_path
+    tokenizer_path = args.tokenizer_path
 
     tokenizer_config = run_config["tokenizer"]
     evolution_config = run_config["evolution"]
@@ -111,10 +118,11 @@ if __name__ == '__main__':
         iterable_train_dataset = datasets["train"]
         iterable_validation_dataset = datasets["validation"]
 
-    tokenizer_filepath = os.path.join(experiment_path, tokenizer_config["tokenizer_filename"])
-    if os.path.exists(tokenizer_filepath):
+    if not tokenizer_path:
+        tokenizer_path = os.path.join(experiment_path, tokenizer_config["tokenizer_filename"])
+    if os.path.exists(tokenizer_path):
         logging.info("Loading tokenizer from file")
-        tokenizer = Tokenizer.from_file(tokenizer_filepath)
+        tokenizer = Tokenizer.from_file(tokenizer_path)
     else:
         tokenizer = Tokenizer(BPE())
         tokenizer.pre_tokenizer = Whitespace()
@@ -129,7 +137,7 @@ if __name__ == '__main__':
                 count += 1
         
         tokenizer.train_from_iterator(text_generator(), trainer=BpeTrainer(vocab_size=tokenizer_config["vocab_size"]))
-        tokenizer.save(tokenizer_filepath)
+        tokenizer.save(tokenizer_path)
 
     train_config_params = {
         "max_iters": training_config["max_iters"],
