@@ -56,7 +56,8 @@ class NeuralNetworkEvolution(Evolution):
                 with open(os.path.join(train_configs_path, f"{individual.id}_train_config.json"), "w") as train_config_file:
                     json.dump(individual.train_config.to_dict(), train_config_file, indent=4)
                 
-                visualize_graph(individual.graph_module, "model_graph", os.path.join(graphs_path, f"{individual.id}_graph.svg"))
+                if self.visualize_graphs:
+                    visualize_graph(individual.graph_module, "model_graph", os.path.join(graphs_path, f"{individual.id}_graph.svg"))
                 
                 # torch.save(individual.graph_module, os.path.join(models_path, f"{individual.id}_model.pt"))  # TODO uncomment once cuda error issue is fixed
         except Exception:

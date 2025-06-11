@@ -16,6 +16,7 @@ class Evolution:
         crossover_fns_and_probabilities: list[tuple[Callable[[Individual, Individual], Individual], float]] = [],
         target_population_size: bool = 100,
         num_children_per_generation: int = 100,
+        visualize_graphs: bool = True,
         **kwargs,
     ):
         """
@@ -29,6 +30,7 @@ class Evolution:
             crossover_fns_and_probabilities: List of crossover functions and their respective probabilities if crossover occurs
             target_population_size: Population size to maintain after selection
             num_children_per_generation: Number of children to generate per generation
+            visualize_graphs: Whether to visualize graphs during evolution (default: True)
         """
         self.population = population
         self.fitness_fn = fitness_fn
@@ -41,6 +43,7 @@ class Evolution:
         self.best_fitness = float('-inf')
         self.best_individual = None
         self.id_counter = len(self.population)
+        self.visualize_graphs = visualize_graphs
         self.kwargs = kwargs
 
     def run_evolution(self, num_generations: int):
