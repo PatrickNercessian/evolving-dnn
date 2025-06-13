@@ -33,7 +33,7 @@ import torch
 VOCAB_SIZE = 2000
 RANDOM_SEED = 42
 
-def configure_logger(experiment_path):
+def configure_logger(experiment_path, logging_config):
     debug_log_file = os.path.join(experiment_path, "evolution_run_debug.log")
     info_log_file = os.path.join(experiment_path, "evolution_run.log")
     
@@ -44,13 +44,16 @@ def configure_logger(experiment_path):
     # Create formatter
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
     
+    # Determine file mode based on config
+    file_mode = 'w' if logging_config.get("overwrite_logs", False) else 'a'
+    
     # Handler for DEBUG and above (all messages) - goes to debug file
-    debug_handler = logging.FileHandler(debug_log_file)
+    debug_handler = logging.FileHandler(debug_log_file, mode=file_mode)
     debug_handler.setLevel(logging.DEBUG)
     debug_handler.setFormatter(formatter)
     
     # Handler for WARNING and above only - goes to warnings file
-    info_handler = logging.FileHandler(info_log_file)
+    info_handler = logging.FileHandler(info_log_file, mode=file_mode)
     info_handler.setLevel(logging.INFO)
     info_handler.setFormatter(formatter)
     
@@ -102,7 +105,7 @@ if __name__ == '__main__':
 
     os.makedirs(experiment_path, exist_ok=True)
 
-    configure_logger(experiment_path)
+    configure_logger(experiment_path, run_config.get("logging", {"overwrite_logs": False}))
 
     set_random_seeds(evolution_config["random_seed"])
 
@@ -172,6 +175,7 @@ if __name__ == '__main__':
         ],
         target_population_size=evolution_config["target_population_size"],
         num_children_per_generation=evolution_config["num_children_per_generation"],
-        experiment_path=experiment_path
+        experiment_path=experiment_path,
+        visualize_graphs=run_config.get("visualization", {"visualize_graphs": True})
     )
     evolution.run_evolution(evolution_config["num_generations"])

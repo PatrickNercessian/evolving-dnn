@@ -48,5 +48,11 @@
       "max_iters": 1000,
       "device": "cuda",
       "validation_batch_size": 32
+    },
+    "logging": {
+      "overwrite_logs": false
+    },
+    "visualization": {
+      "visualize_graphs": true
     }
 }
