@@ -19,6 +19,7 @@ def calculate_fitness(
     block_size: int,
     num_train_steps: int = 100,
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
+    loss_log_frequency: int = 100,
 ) -> float:
     """
     Calculate fitness of a GPT model by training it and returning negative loss
@@ -31,6 +32,7 @@ def calculate_fitness(
         tokenizer: Tokenizer for encoding text
         num_train_steps: Number of training steps to perform
         device: Device to train on
+        loss_log_frequency: How often to log training loss (every N iterations)
         
     Returns:
         float: Fitness score (higher is better)
@@ -47,14 +49,18 @@ def calculate_fitness(
     # Run training
     trainer = Trainer(individual.train_config, individual.graph_module, train_dataset)
     def batch_end_callback(trainer):
-        # TODO need to pick max iter_dt based on the model sizes.
-        if trainer.iter_dt > 20:  # if it even has one that's this bad, just kill it
+        # Use configurable timeout values from train_config
+        max_timeout = getattr(trainer.config, 'max_iter_timeout', 20.0)  # fallback to 20.0 if not set
+        secondary_timeout = getattr(trainer.config, 'normal_iter_timeout', 0.2)  # fallback to 0.2 if not set
+        
+        if trainer.iter_dt > max_timeout:  # if it even has one that's this bad, just kill it
             raise ValueError(f"Iteration took too long: {trainer.iter_dt} seconds at iter {trainer.iter_num}")
-        if trainer.iter_num % 100 == 0:  # TODO uncomment this
+        if trainer.iter_num % loss_log_frequency == 0:  # Use configurable frequency
             logging.debug(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
 
             # # TODO better to do some averaging here instead of just checking 1/100
-            if trainer.iter_dt > 0.2:  # Do it here so less likely that a random slow iteration will cause the entire train to fail
+            # What's the point of this?
+            if trainer.iter_dt > secondary_timeout:  # Do it here so less likely that a random slow iteration will cause the entire train to fail
                 raise ValueError(f"Iteration took too long: {trainer.iter_dt} seconds at iter {trainer.iter_num}")
     trainer.set_callback('on_batch_end', batch_end_callback)
     trainer.set_callback('on_train_end', batch_end_callback)

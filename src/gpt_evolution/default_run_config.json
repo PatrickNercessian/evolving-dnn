@@ -47,10 +47,13 @@
     "training": {
       "max_iters": 1000,
       "device": "cuda",
-      "validation_batch_size": 32
+      "validation_batch_size": 32,
+      "loss_log_frequency": 1,
+      "max_iter_timeout": 20.0,
+      "normal_iter_timeout": 0.2
     },
     "logging": {
-      "overwrite_logs": false
+      "overwrite_logs": false  
     },
-    "visualization":  false
+    "visualization":  true
 }

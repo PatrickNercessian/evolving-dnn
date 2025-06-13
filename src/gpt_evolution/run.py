@@ -156,6 +156,7 @@ if __name__ == '__main__':
             tokenizer,
             block_size=gpt_config["block_size"],
             device=train_config_params["device"],
+            loss_log_frequency=training_config.get("loss_log_frequency", 100),
         )
 
     evolution = NeuralNetworkEvolution(
