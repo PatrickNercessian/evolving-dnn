@@ -48,13 +48,17 @@ def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndi
     # Extract node names for highlighting
     subgraph_node_names = {node.name for node in insert_subgraph_kwargs["subgraph_nodes"]}
 
-    # Visualize the graph with the subgraph highlighted
-    random_int = random.randint(0, 1000000)
-    visualize_graph(parent.graph_module, "model_graph_highlighted", os.path.join(crossover_visualization_dir, f"{random_int}_{parent.id}_graph_highlighted.svg"), highlight_nodes=subgraph_node_names)
+    # Visualize the graph with the subgraph highlighted (only if visualization is enabled)
+    visualize_graphs = kwargs.get("visualize_graphs", True)
+    if visualize_graphs:
+        random_int = random.randint(0, 1000000)
+        visualize_graph(parent.graph_module, "model_graph_highlighted", os.path.join(crossover_visualization_dir, f"{random_int}_{parent.id}_graph_highlighted.svg"), highlight_nodes=subgraph_node_names)
 
     child.graph_module, new_node_names = insert_subgraph(child.graph_module, **insert_subgraph_kwargs)
 
-    visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", os.path.join(crossover_visualization_dir, f"{random_int}_{child.id}_graph_after_crossover_highlighted.svg"), highlight_nodes=new_node_names)
+    # Visualize the graph after crossover (only if visualization is enabled)  
+    if visualize_graphs:
+        visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", os.path.join(crossover_visualization_dir, f"{random_int}_{child.id}_graph_after_crossover_highlighted.svg"), highlight_nodes=new_node_names)
 
 def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     """
