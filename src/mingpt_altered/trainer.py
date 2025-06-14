@@ -30,9 +30,6 @@ class Trainer:
         C.betas = (0.9, 0.95)
         C.weight_decay = 0.1 # only applied on matmul weights
         C.grad_norm_clip = 1.0
-        # timeout parameters for training evaluation
-        C.max_iter_timeout = 20.0  # maximum seconds per iteration before terminating
-        C.normal_iter_timeout = 0.2  # normal maximum seconds per iteration (warning threshold)
         return C
 
     def __init__(self, config, model, train_dataset):
