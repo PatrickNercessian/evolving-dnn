@@ -7,3 +7,8 @@ token_list
 token_map
 input.txt
 *.csv
+*.parquet
+tokenizer.json
+experiments/
+*.ipynb
+default_experiment_path/
