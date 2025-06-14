@@ -44,7 +44,9 @@ class Evolution:
         self.best_individual = None
         self.id_counter = len(self.population)
         self.visualize_graphs = visualize_graphs
+        # Add visualize_graphs to kwargs so it gets passed to crossover/mutation functions
         self.kwargs = kwargs
+        self.kwargs['visualize_graphs'] = visualize_graphs
 
     def run_evolution(self, num_generations: int):
         """
