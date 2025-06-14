@@ -370,7 +370,7 @@ def _remove_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torc
     # Check if reference node is a skip connection or branch node
     if reference_node.target in (torch.add, torch.cat, torch.mul):
         raise ValueError("Reference node is a skip connection or branch node, can't be removed")
-    if len(reference_node.args[0].users) > 1:
+    if hasattr(reference_node.args[0], 'users') and len(reference_node.args[0].users) > 1:
         raise ValueError("Reference node is first node in branch, can't be removed")
     # TODO: Implement different removals for skip connections and branch nodes
 

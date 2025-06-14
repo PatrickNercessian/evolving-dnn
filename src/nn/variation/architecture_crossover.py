@@ -18,6 +18,8 @@ MAX_NODES = 32
 
 CROSSOVER_VISUALIZATION_DIR = "crossover_visualization"
 
+# TODO need to prune after to save computation
+
 def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndividual, **kwargs):
     crossover_visualization_dir = os.path.join(kwargs.get("experiment_path", ""), CROSSOVER_VISUALIZATION_DIR)
     os.makedirs(crossover_visualization_dir, exist_ok=True)
