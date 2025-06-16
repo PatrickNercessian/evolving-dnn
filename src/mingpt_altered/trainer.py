@@ -110,8 +110,6 @@ class Trainer:
             batch = [t.to(self.device) for t in batch]
             x, y = batch
 
-            # TODO print out x[0] and y[0] and see that they're offset by 1 position still with the new dataset
-
             # forward the model
             logits = model(x)
             self.loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1), ignore_index=-1)

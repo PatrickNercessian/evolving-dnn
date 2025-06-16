@@ -5,7 +5,7 @@ import json
 import logging
 
 from ..gpt_evolution.initial_population import generate_initial_population
-from ..gpt_evolution.helpers import set_random_seeds
+from ..gpt_evolution.helpers import set_random_seeds, deep_merge_dicts
 from ..nn.evaluate import calculate_fitness
 from ..nn.individual import NeuralNetworkIndividual
 from ..nn.evolution import NeuralNetworkEvolution
@@ -94,8 +94,12 @@ if __name__ == '__main__':
     )
     args = parser.parse_args()
 
+    with open('./src/gpt_evolution/default_run_config.json', 'r') as f:
+        default_run_config = json.load(f)
     with open(args.config, 'r') as f:
-        run_config = json.load(f)
+        override_run_config = json.load(f)
+
+    run_config = deep_merge_dicts(default_run_config, override_run_config)
     experiment_path = args.experiment_path
     tokenizer_path = args.tokenizer_path
 
@@ -127,6 +131,7 @@ if __name__ == '__main__':
     if os.path.exists(tokenizer_path):
         logging.info("Loading tokenizer from file")
         tokenizer = Tokenizer.from_file(tokenizer_path)
+        tokenizer.save(os.path.join(experiment_path, tokenizer_config["tokenizer_filename"]))  # bring to new experiment path for cohesive storage
     else:
         tokenizer = Tokenizer(BPE())
         tokenizer.pre_tokenizer = Whitespace()

@@ -48,7 +48,7 @@
       "max_iters": 1000,
       "device": "cuda",
       "validation_batch_size": 32,
-      "loss_log_frequency": 1,
+      "loss_log_frequency": 100,
       "max_iter_timeout": 20.0,
       "secondary_iter_timeout": 0.2
     },

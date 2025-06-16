@@ -41,7 +41,6 @@ def get_graph(model: nn.Module, input_shape: tuple|None = None, example_input: t
         }
         
         # Run shape propagation
-        logging.debug(f"example_input: {example_input}")
         ShapeProp(graph).propagate(example_input)  # SHAPE NOTE: Shape propagation uses full shape including batch dimension
     
     return graph
