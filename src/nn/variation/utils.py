@@ -378,3 +378,21 @@ def get_feature_dims(shape):
 
 def node_has_shape(node: torch.fx.Node):
     return "tensor_meta" in node.meta and hasattr(node.meta["tensor_meta"], "shape")
+
+def node_has_float_dtype(node: torch.fx.Node):
+    """
+    Check if a node has a float tensor dtype.
+    
+    Args:
+        node: The FX node to check
+    Returns:
+        bool: True if the node has a float dtype, False otherwise
+    """
+    if not hasattr(node, 'meta') or 'tensor_meta' not in node.meta:
+        return False
+    
+    tensor_dtype = node.meta['tensor_meta'].dtype
+    # Check if dtype is one of the PyTorch float types
+    float_dtypes = [torch.float32, torch.float64, torch.float16, torch.bfloat16, 
+                   torch.float8_e5m2, torch.float8_e4m3fn, torch.float, torch.double, torch.half]
+    return tensor_dtype in float_dtypes
