@@ -9,6 +9,7 @@ from ..gpt_evolution.helpers import set_random_seeds
 from ..nn.evaluate import calculate_fitness
 from ..nn.individual import NeuralNetworkIndividual
 from ..nn.evolution import NeuralNetworkEvolution
+from ..nn.visualization import log_best_individual
 from ..nn.variation.hyperparam_variation import (
     mutate_batch_size, crossover_batch_size,
     mutate_learning_rate, crossover_learning_rate,
@@ -182,3 +183,5 @@ if __name__ == '__main__':
         visualize_graphs=run_config.get("visualization", True)
     )
     evolution.run_evolution(evolution_config["num_generations"])
+
+    log_best_individual(evolution, experiment_path, run_config.get("logging", {}).get("overwrite_logs", False))
