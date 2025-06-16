@@ -22,13 +22,17 @@ from .utils import CfgNode as CN
 
 # -----------------------------------------------------------------------------
 
+@torch.fx.wrap  # TODO remove this if we want it expanded so activation function itself can evolve
+def new_gelu_function(x):
+    return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
+
 class NewGELU(nn.Module):
     """
     Implementation of the GELU activation function currently in Google BERT repo (identical to OpenAI GPT).
     Reference: Gaussian Error Linear Units (GELU) paper: https://arxiv.org/abs/1606.08415
     """
     def forward(self, x):
-        return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
+        return new_gelu_function(x)
 
 class CausalSelfAttention(nn.Module):
     """
@@ -73,11 +77,16 @@ class CausalSelfAttention(nn.Module):
         att = F.softmax(att, dim=-1)
         att = self.attn_dropout(att)
         y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(batch_size, sequence_length, embedding_dim) # re-assemble all head outputs side by side
+        y = _transpose_contiguous(y, 1, 2).view(batch_size, sequence_length, embedding_dim) # re-assemble all head outputs side by side
+        # y = y.transpose(1, 2).contiguous().view(batch_size, sequence_length, embedding_dim)
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         return y
+
+@torch.fx.wrap
+def _transpose_contiguous(x: torch.Tensor, dim0: int, dim1: int) -> torch.Tensor:
+    return x.transpose(dim0, dim1).contiguous()
 
 class Block(nn.Module):
     """ an unassuming Transformer block """
