@@ -109,7 +109,7 @@ def test_subgraph_functions():
     # Minimal evolution framework test
     from src.nn.individual import NeuralNetworkIndividual
     from src.evolution import Evolution
-    from mingpt.utils import CfgNode as CN
+    from src.mingpt_altered.utils import CfgNode as CN
     from src.nn.variation.hyperparam_variation import mutate_learning_rate
     from src.nn.variation.architecture_crossover import crossover_subgraph
 
