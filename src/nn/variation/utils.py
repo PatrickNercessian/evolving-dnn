@@ -233,7 +233,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None, t
             return add_specific_node(
                 graph,
                 node,
-                nn.Linear(current_size, target_size),
+                nn.Linear(current_size[0], target_size[0]),
                 target_user=target_user
             )
         return _adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user=target_user)

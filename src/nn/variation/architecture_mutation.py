@@ -135,34 +135,14 @@ def mutation_remove_node(individual):
     # Find eligible nodes to remove (not input, output, or critical nodes)
     nodes = list(individual.graph_module.graph.nodes)
     possible_nodes = _get_eligible_nodes(individual, nodes)
-    eligible_nodes = []
-
-    for node in possible_nodes:
-        # Skip placeholder (input) and output nodes
-        if node.op in ['placeholder', 'output']:
-            continue
-        
-        # Skip nodes that are skip connections or branch nodes (as per remove_node restrictions)
-        if hasattr(node, 'target') and node.target in (torch.add, torch.cat, torch.mul):
-            continue
-            
-        # Skip nodes that are the first node in a branch (have multiple users)
-        if len(node.users) > 1:
-            continue
-            
-        # Skip if this is the only non-input/output node (would break the graph)
-        non_io_nodes = [n for n in nodes if n.op not in ['placeholder', 'output']]
-        if len(non_io_nodes) <= 1:
-            continue
-            
-        eligible_nodes.append(node)
     
-    if not eligible_nodes:
-        logging.warning("No eligible nodes for removal")
+    # Raise error if there's only one node in the graph
+    if len(possible_nodes) <= 1:
+        logging.warning(f"There's {len(possible_nodes)} node(s) in the graph, can't remove any")
         return individual
-    
+
     # Select a random node to remove
-    node_to_remove = random.choice(eligible_nodes)
+    node_to_remove = random.choice(possible_nodes)
     logging.debug(f"Removing node: {node_to_remove.name}")
     
     # Remove the node
@@ -171,6 +151,9 @@ def mutation_remove_node(individual):
     return individual
 
 def _get_eligible_nodes(individual, nodes=None):
+    """
+    Returns all nodes in the graph that have shape information and excludes placeholder and output nodes.
+    """
     if nodes is None:
         nodes = list(individual.graph_module.graph.nodes)
     eligible_nodes = []
@@ -359,7 +342,7 @@ def _add_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torch.f
 
 def _remove_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torch.fx.Node):
     """
-    Removes a node from the graph, can't be a skip connection or branch node
+    Removes a node from the graph, can't be a skip connection
     
     Args:
         graph: The FX graph
@@ -367,36 +350,59 @@ def _remove_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torc
     Returns:
         graph: The modified graph
     """
-    # Check if reference node is a skip connection or branch node
+    # Check if reference node is a skip connection
+    # TODO: Implement different removals for skip connections
     if reference_node.target in (torch.add, torch.cat, torch.mul):
         raise ValueError("Reference node is a skip connection or branch node, can't be removed")
-    if hasattr(reference_node.args[0], 'users') and len(reference_node.args[0].users) > 1:
-        raise ValueError("Reference node is first node in branch, can't be removed")
-    # TODO: Implement different removals for skip connections and branch nodes
 
-
-    input_node = reference_node.args[0]
+    feeding_node = reference_node.args[0]
     
     # Get shapes before removing node
-    output_left_shape = input_node.meta['tensor_meta'].shape  # SHAPE NOTE: Full shape with batch dimension
-    input_right_shape = reference_node.meta['tensor_meta'].shape  # SHAPE NOTE: Full shape with batch dimension
+    feeding_output_shape = feeding_node.meta['tensor_meta'].shape  # SHAPE NOTE: Full shape with batch dimension
+    removed_output_shape = reference_node.meta['tensor_meta'].shape  # SHAPE NOTE: Full shape with batch dimension
     
     # Extract feature dimensions
-    output_left_features = get_feature_dims(output_left_shape)
+    feeding_output_features = feeding_output_shape[1:]
     
-    # Remove the node from the graph
-    reference_node.replace_all_uses_with(input_node)
+    # Step 1: Create list of child node names before removal
+    original_child_names = []
+    for user in reference_node.users:
+        original_child_names.append(user.name)
+        logging.debug(f"Original child: {user.name}")
     
+    # Step 2: Remove the node from the graph and replace all uses
+    reference_node.replace_all_uses_with(feeding_node)
     graph.graph.erase_node(reference_node)
     
     graph.delete_all_unused_submodules()
 
+    # Step 3: Build shapes list by checking feeder node's children against original list
+    children_shapes = []
+    for user in feeding_node.users:
+        if user.name in original_child_names:
+            # This child was originally using the removed node
+            children_shapes.append(removed_output_shape)
+            logging.debug(f"Child {user.name} was in original list, adding removed node shape")
+        else:
+            # This child was not originally using the removed node
+            children_shapes.append("pass")
+            logging.debug(f"Child {user.name} was NOT in original list, adding 'pass'")
+    
+    # Determine child_input_shape argument for _adapt_connections
+    if len(children_shapes) == 1:
+        # Single child, use single shape (backward compatibility)
+        child_input_shape = children_shapes[0]
+    else:
+        # Multiple children, use list of shapes
+        child_input_shape = children_shapes
+
     # Adapt connections between input node and its new users with clear shape distinction
-    graph = _adapt_connections(graph, new_node=input_node, 
-                             parent_output_shape=output_left_shape,
-                             new_node_input_features=output_left_features,
-                             new_node_output_features=output_left_features,
-                             child_input_shape=input_right_shape)
+    # parent_output_shape must match new_node_input_features 
+    graph = _adapt_connections(graph, new_node=feeding_node, 
+                             parent_output_shape=feeding_output_shape,
+                             new_node_input_features=feeding_output_features,
+                             new_node_output_features=feeding_output_features,
+                             child_input_shape=child_input_shape)
 
     # Lint and recompile the graph
     graph.graph.lint()
@@ -405,7 +411,7 @@ def _remove_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torc
     # Run shape propagation again to update all shape metadata
     ShapeProp(graph).propagate(graph.example_input)
 
-    return graph, input_node
+    return graph, feeding_node
 
 def _adapt_connections(
     graph: torch.fx.GraphModule,
@@ -413,7 +419,7 @@ def _adapt_connections(
     parent_output_shape: tuple,  # Full shape with batch dimension from parent node output
     new_node_input_features: tuple,  # Feature dimensions only (no batch) for new node input
     new_node_output_features: tuple,  # Feature dimensions only (no batch) for new node output
-    child_input_shape: tuple  # Full shape with batch dimension required by child node
+    child_input_shape: tuple | list[tuple]  # Full shape with batch dimension required by child node, can be a list of shapes for multiple children
 ):
     """
     Adapts the connections to/from a node to ensure all connected nodes have compatible shapes.
@@ -424,15 +430,16 @@ def _adapt_connections(
         parent_output_shape: The shape output by the parent node (full shape with batch dimension)
         new_node_input_features: The input shape expected by new node (feature dimensions only, no batch)
         new_node_output_features: The output shape produced by new node (feature dimensions only, no batch)
-        child_input_shape: The input shape expected by the child node (full shape with batch dimension)
+        child_input_shape: The input shape expected by the child node (full shape with batch dimension), can be a list of shapes for multiple children
     Returns:
         graph: The modified graph
     """
     
     # Extract feature dimensions from parent and child shapes
     parent_features = get_feature_dims(parent_output_shape)
-    child_features = get_feature_dims(child_input_shape)
-    
+    if not isinstance(child_input_shape, list):
+        child_features = get_feature_dims(child_input_shape)
+
     # Special handling for skip connections (torch.add operations)
     # TODO: Handle any kind of skip connection (e.g. torch.cat, torch.mul, etc.)
     if new_node.target == torch.add:
@@ -465,9 +472,28 @@ def _adapt_connections(
             # Parent output features (128, 239) don't match node input features (2, 128, 239)
             graph, parent_node = adapt_node_shape(graph, new_node.args[0], parent_features, new_node_input_features)
 
-    # Handle new-node-to-child connection
-    if new_node_output_features != child_features:
-        logging.debug(f"Node output features {new_node_output_features} don't match child input features {child_features}")
-        graph, child_node = adapt_node_shape(graph, new_node, new_node_output_features, child_features)
+    # Handle new-node-to-child connection(s)
+    if isinstance(child_input_shape, list):
+        # Handle multiple children
+        # Get the current children in their order after any reassignments
+        child_users = list(new_node.users)
+        
+        for i, child_shape in enumerate(child_input_shape):
+            if child_shape == "pass":
+                logging.debug(f"Skipping child {i} (pass)")
+                continue
+            
+            # Get the corresponding child user for targeted adaptation
+            target_child = child_users[i] if i < len(child_users) else None
+            
+            child_features = get_feature_dims(child_shape)
+            if new_node_output_features != child_features:
+                logging.debug(f"Node output features {new_node_output_features} don't match child {i} input features {child_features}")
+                graph, child_node = adapt_node_shape(graph, new_node, new_node_output_features, child_features, target_user=target_child)
+    else:
+        # Handle single child (original behavior)
+        if new_node_output_features != child_features:
+            logging.debug(f"Node output features {new_node_output_features} don't match child input features {child_features}")
+            graph, child_node = adapt_node_shape(graph, new_node, new_node_output_features, child_features)
     
     return graph
