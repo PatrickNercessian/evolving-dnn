@@ -238,7 +238,6 @@ def find_subgraph_connections(
     
     input_mapping, _ = _select_random_mapping(input_mapping, get_candidates(input_mapping))
     target_input_nodes = set(node for nodes in input_mapping.values() for node in nodes)
-    logging.debug(f"target_input_nodes: {[n.name if hasattr(n, 'name') else str(n) for n in target_input_nodes]}")
     
     output_mapping, topo_target_input_nodes = _select_random_mapping(
         output_mapping,
