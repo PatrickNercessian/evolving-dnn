@@ -27,7 +27,7 @@ def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndi
     subgraph_nodes = set()
     lowest_num_boundary_nodes = float('inf')
     broken_subgraphs = 0
-    for _ in range(100):
+    for attempt in range(100):
         try:
             num_nodes = random.randint(MIN_NODES, MAX_NODES)
             subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(parent.graph_module, num_nodes)
@@ -62,7 +62,6 @@ def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndi
             input_mapping, topo_target_input_nodes, output_mapping = find_subgraph_connections(child.graph_module.graph, input_boundary_nodes, output_boundary_nodes)
             
             lowest_num_boundary_nodes = num_boundary_nodes
-            best_attempt = attempt + 1
             logging.debug(f"Attempt {attempt + 1}: ACCEPTED - new best subgraph with {num_boundary_nodes} boundary nodes")
 
             insert_subgraph_kwargs = {
@@ -86,6 +85,9 @@ def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndi
         visualize_graph(parent.graph_module, "model_graph_highlighted", os.path.join(crossover_visualization_dir, f"{random_int}_{parent.id}_graph_highlighted.svg"), highlight_nodes=subgraph_node_names)
 
     child.graph_module, new_node_names = insert_subgraph(child.graph_module, **insert_subgraph_kwargs)
+
+    # Log successful subgraph insertion
+    logging.info(f"Successfully inserted subgraph with {len(insert_subgraph_kwargs['subgraph_nodes'])} nodes into child {child.id} from parent {parent.id}")
 
     # Visualize the graph after crossover (only if visualization is enabled)  
     if visualize_graphs:
@@ -211,8 +213,6 @@ def find_subgraph_connections(
             
         # Check tensor metadata
         if not _has_float_dtype(node1) or not _has_float_dtype(node2):
-        # if not node_has_shape(node1) or not node_has_shape(node2):
-            logging.debug(f"Nodes incompatible: {node1.name} and {node2.name} - one lacks float dtype")
             return False
         
         if node1.meta["tensor_meta"].dtype != node2.meta["tensor_meta"].dtype:
