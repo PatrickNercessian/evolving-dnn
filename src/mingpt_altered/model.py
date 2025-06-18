@@ -11,15 +11,20 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 # THIS FILE IS COPIED FROM https://github.com/karpathy/minGPT/blob/master/mingpt/model.py
 # MINOR CHANGES MADE TO BE USED WITH torch.fx and be more readable
 
+import logging
 import math
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from mingpt.utils import CfgNode as CN
+from .utils import CfgNode as CN
 
 # -----------------------------------------------------------------------------
+
+@torch.fx.wrap  # TODO remove this if we want it expanded so activation function itself can evolve
+def new_gelu_function(x):
+    return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
 
 class NewGELU(nn.Module):
     """
@@ -27,7 +32,7 @@ class NewGELU(nn.Module):
     Reference: Gaussian Error Linear Units (GELU) paper: https://arxiv.org/abs/1606.08415
     """
     def forward(self, x):
-        return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
+        return new_gelu_function(x)
 
 class CausalSelfAttention(nn.Module):
     """
@@ -55,7 +60,7 @@ class CausalSelfAttention(nn.Module):
         self.is_proxy_for_fx = config.is_proxy_for_fx
         self.block_size = config.block_size
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, embedding_dim = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
         if self.is_proxy_for_fx:
             sequence_length = self.block_size
@@ -72,11 +77,16 @@ class CausalSelfAttention(nn.Module):
         att = F.softmax(att, dim=-1)
         att = self.attn_dropout(att)
         y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
-        y = y.transpose(1, 2).contiguous().view(batch_size, sequence_length, embedding_dim) # re-assemble all head outputs side by side
+        y = _transpose_contiguous(y, 1, 2).view(batch_size, sequence_length, embedding_dim) # re-assemble all head outputs side by side
+        # y = y.transpose(1, 2).contiguous().view(batch_size, sequence_length, embedding_dim)
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
         return y
+
+@torch.fx.wrap
+def _transpose_contiguous(x: torch.Tensor, dim0: int, dim1: int) -> torch.Tensor:
+    return x.transpose(dim0, dim1).contiguous()
 
 class Block(nn.Module):
     """ an unassuming Transformer block """
@@ -106,8 +116,6 @@ class GPT(nn.Module):
     @staticmethod
     def get_default_config():
         C = CN()
-        # either model_type or (n_layer, n_head, n_embd) must be given in the config
-        C.model_type = 'gpt'
         C.n_layer = None
         C.n_head = None
         C.n_embd =  None
@@ -128,28 +136,7 @@ class GPT(nn.Module):
         self.config = config
         self.block_size = config.block_size
 
-        type_given = config.model_type is not None
-        params_given = all([config.n_layer is not None, config.n_head is not None, config.n_embd is not None])
-        assert type_given ^ params_given # exactly one of these (XOR)
-        if type_given:
-            # translate from model_type to detailed configuration
-            config.merge_from_dict({
-                # names follow the huggingface naming conventions
-                # GPT-1
-                'openai-gpt':   dict(n_layer=12, n_head=12, n_embd=768),  # 117M params
-                # GPT-2 configs
-                'gpt2':         dict(n_layer=12, n_head=12, n_embd=768),  # 124M params
-                'gpt2-medium':  dict(n_layer=24, n_head=16, n_embd=1024), # 350M params
-                'gpt2-large':   dict(n_layer=36, n_head=20, n_embd=1280), # 774M params
-                'gpt2-xl':      dict(n_layer=48, n_head=25, n_embd=1600), # 1558M params
-                # Gophers
-                'gopher-44m':   dict(n_layer=8, n_head=16, n_embd=512),
-                # (there are a number more...)
-                # I made these tiny models up
-                'gpt-mini':     dict(n_layer=6, n_head=6, n_embd=192),
-                'gpt-micro':    dict(n_layer=4, n_head=4, n_embd=128),
-                'gpt-nano':     dict(n_layer=3, n_head=3, n_embd=48),
-            }[config.model_type])
+        assert all([config.n_layer is not None, config.n_head is not None, config.n_embd is not None])
 
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
@@ -166,10 +153,6 @@ class GPT(nn.Module):
             if pn.endswith('c_proj.weight'):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
 
-        # report number of parameters (note we don't count the decoder parameters in lm_head)
-        n_params = sum(p.numel() for p in self.transformer.parameters())
-        print("number of parameters: %.2fM" % (n_params/1e6,))
-
         self.is_proxy_for_fx = config.is_proxy_for_fx
 
     def _init_weights(self, module):
@@ -182,47 +165,6 @@ class GPT(nn.Module):
         elif isinstance(module, nn.LayerNorm):
             torch.nn.init.zeros_(module.bias)
             torch.nn.init.ones_(module.weight)
-
-    @classmethod
-    def from_pretrained(cls, model_type):
-        """
-        Initialize a pretrained GPT model by copying over the weights
-        from a huggingface/transformers checkpoint.
-        """
-        assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
-        from transformers import GPT2LMHeadModel
-
-        # create a from-scratch initialized minGPT model
-        config = cls.get_default_config()
-        config.model_type = model_type
-        config.vocab_size = 50257 # openai's model vocabulary
-        config.block_size = 1024  # openai's model block_size
-        model = GPT(config)
-        sd = model.state_dict()
-
-        # init a huggingface/transformers model
-        model_hf = GPT2LMHeadModel.from_pretrained(model_type)
-        sd_hf = model_hf.state_dict()
-
-        # copy while ensuring all of the parameters are aligned and match in names and shapes
-        keys = [k for k in sd_hf if not k.endswith('attn.masked_bias')] # ignore these
-        transposed = ['attn.c_attn.weight', 'attn.c_proj.weight', 'mlp.c_fc.weight', 'mlp.c_proj.weight']
-        # basically the openai checkpoints use a "Conv1D" module, but we only want to use a vanilla nn.Linear.
-        # this means that we have to transpose these weights when we import them
-        assert len(keys) == len(sd)
-        for k in keys:
-            if any(k.endswith(w) for w in transposed):
-                # special treatment for the Conv1D weights we need to transpose
-                assert sd_hf[k].shape[::-1] == sd[k].shape
-                with torch.no_grad():
-                    sd[k].copy_(sd_hf[k].t())
-            else:
-                # vanilla copy over the other parameters
-                assert sd_hf[k].shape == sd[k].shape
-                with torch.no_grad():
-                    sd[k].copy_(sd_hf[k])
-
-        return model
 
     def forward(self, idx):
         device = idx.device

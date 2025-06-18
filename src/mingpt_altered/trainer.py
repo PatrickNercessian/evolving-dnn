@@ -3,6 +3,8 @@ Simple training loop; Boilerplate that could apply to any arbitrary neural netwo
 so nothing in this file really has anything to do with GPT specifically.
 """
 
+import math
+import logging
 import time
 from collections import defaultdict
 
@@ -10,7 +12,7 @@ import torch
 from torch.nn import functional as F
 
 from torch.utils.data.dataloader import DataLoader
-from mingpt.utils import CfgNode as CN
+from .utils import CfgNode as CN
 
 class Trainer:
 
@@ -41,7 +43,7 @@ class Trainer:
         if config.device == 'auto':
             if torch.cuda.is_available():
                 self.device = 'cuda'
-            # elif torch.backends.mps.is_available():
+            # elif torch.backends.mps.is_available(): # TODO this doesn't work with adapative avg pooling having non-integer multiples
             #     print("MPS available")
             #     self.device = 'mps'
             else:
@@ -49,7 +51,7 @@ class Trainer:
         else:
             self.device = config.device
         self.model = self.model.to(self.device)
-        print("running on device", self.device)
+        logging.debug(f"running on device {self.device}")
 
         # variables that will be assigned to trainer class later for logging and etc
         self.iter_num = 0
@@ -73,14 +75,25 @@ class Trainer:
         self.optimizer = model.configure_optimizers(config)
 
         # setup the dataloader
-        train_loader = DataLoader(
-            self.train_dataset,
-            sampler=torch.utils.data.RandomSampler(self.train_dataset, replacement=True, num_samples=int(1e10)),
-            shuffle=False,
-            pin_memory=True,
-            batch_size=config.batch_size,
-            num_workers=config.num_workers,
-        )
+        # Check if we have an IterableDataset or a regular Dataset
+        if hasattr(self.train_dataset, '__len__'):
+            # Regular Dataset with RandomSampler
+            train_loader = DataLoader(
+                self.train_dataset,
+                sampler=torch.utils.data.RandomSampler(self.train_dataset, replacement=True, num_samples=int(1e10)),
+                shuffle=False,
+                pin_memory=True,
+                batch_size=config.batch_size,
+                num_workers=config.num_workers,
+            )
+        else:
+            # IterableDataset - no sampler needed
+            train_loader = DataLoader(
+                self.train_dataset,
+                batch_size=config.batch_size,
+                pin_memory=True,
+                num_workers=0,  # IterableDatasets work better with num_workers=0
+            )
 
         model.train()
         self.iter_num = 0
@@ -100,6 +113,8 @@ class Trainer:
             # forward the model
             logits = model(x)
             self.loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1), ignore_index=-1)
+            if math.isnan(self.loss):
+                raise ValueError(f"Loss is nan at iter {self.iter_num}")
 
             # backprop and update the parameters
             model.zero_grad(set_to_none=True)
@@ -115,66 +130,5 @@ class Trainer:
 
             # termination conditions
             if config.max_iters is not None and self.iter_num >= config.max_iters:
+                self.trigger_callbacks('on_train_end')
                 break
-
-if __name__ == "__main__":
-    from mingpt.model import GPT
-    from mingpt.trainer import Trainer
-    from src.nn.bpe import tokenize_string, VOCAB_SIZE
-
-    import torch
-    import os
-
-    if os.path.exists('tokenized_data.pt'):
-        data = torch.load('tokenized_data.pt')  # Save the tokenized data tensor to a file
-    else:
-        # Load, tokenize and save the input text
-        with open('mingpt/input.txt', 'r', encoding='utf-8') as f:
-            text = f.read()
-        data = tokenize_string(text)
-        torch.save(data, 'tokenized_data.pt')
-
-    # Create a simple dataset that generates sequences of block_size tokens
-    class TextDataset(torch.utils.data.Dataset):
-        def __init__(self, data, block_size):
-            self.data = data
-            self.block_size = block_size
-
-        def __len__(self):
-            return len(self.data) - self.block_size
-
-        def __getitem__(self, idx):
-            # return a chunk of data and the next token as target
-            x = self.data[idx:idx + self.block_size]
-            y = self.data[idx + 1:idx + self.block_size + 1]
-            return x, y
-
-    # Initialize the model and training
-    block_size = 128  # context length
-    train_dataset = TextDataset(data, block_size)
-
-    # Get default config and modify as needed
-    config = GPT.get_default_config()
-    config.model_type = None
-    config.vocab_size = VOCAB_SIZE
-    config.block_size = block_size
-    config.n_layer = 2
-    config.n_head = 2
-    config.n_embd = 512
-
-    # Create model
-    model = GPT(config)
-
-    # Training configuration
-    train_config = Trainer.get_default_config()
-    train_config.max_iters = 5000
-    train_config.batch_size = 32
-    train_config.learning_rate = 3e-4
-    train_config.num_workers = 0
-    
-    trainer = Trainer(train_config, model, train_dataset)
-    def batch_end_callback(trainer):
-        if trainer.iter_num % 100 == 0:
-            print(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
-    trainer.set_callback('on_batch_end', batch_end_callback)
-    trainer.run()

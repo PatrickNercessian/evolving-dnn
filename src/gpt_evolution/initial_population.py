@@ -1,12 +1,13 @@
+import logging
 import random
 
 import torch
 
-from mingpt.model import GPT
-from mingpt.utils import CfgNode as CN
+from ..mingpt_altered.model import GPT
+from ..mingpt_altered.utils import CfgNode as CN
 
-from src.nn.core import get_graph
-from src.nn.individual import NeuralNetworkIndividual
+from ..nn.core import get_graph
+from ..nn.individual import NeuralNetworkIndividual
 
 def generate_initial_population(
     population_size: int,
@@ -20,20 +21,19 @@ def generate_initial_population(
     Args:
         population_size (int): Number of models to generate
         vocab_size (int): Size of the vocabulary
-        block_size (int): Maximum sequence length
-        device (str): Device to place models on
-        
+        gpt_config_params (dict): Parameters for the GPT config
+        train_config_params (dict): Parameters for the train config
     Returns:
         list: List of GPT models with random configurations
     """
     population = []
     
     for i in range(population_size):
-        print(f"Generating individual {i+1} of {population_size}")
+        logging.info(f"Generating individual {i+1} of {population_size}")
         model_config = create_random_gpt_config(vocab_size, **gpt_config_params)
         train_config = create_random_train_config(**train_config_params)
-        print("model_config", model_config)
-        print("train_config", train_config)
+        logging.debug(f"model_config: {model_config}")
+        logging.debug(f"train_config: {train_config}")
         example_input = torch.randint(0, model_config.vocab_size, (1, model_config.block_size))
         graph_module = get_graph(GPT(model_config), example_input=example_input)
         population.append(NeuralNetworkIndividual(i, graph_module=graph_module, train_config=train_config))
@@ -53,12 +53,9 @@ def create_random_gpt_config(
     Args:
         vocab_size (int): Size of the vocabulary
         block_size (int): Maximum sequence length
-        min_layers (int): Minimum number of transformer layers
-        max_layers (int): Maximum number of transformer layers
-        min_heads (int): Minimum number of attention heads
-        max_heads (int): Maximum number of attention heads
-        min_embed (int): Minimum embedding dimension
-        max_embed (int): Maximum embedding dimension
+        layer_bounds (tuple[int, int]): Minimum and maximum number of transformer layers
+        head_bounds (tuple[int, int]): Minimum and maximum number of attention heads
+        embed_bounds (tuple[int, int]): Minimum and maximum embedding dimension
     
     Returns:
         CN: Configuration object for GPT model
@@ -82,7 +79,6 @@ def create_random_gpt_config(
     config.resid_pdrop = random.uniform(0.0, 0.2)
     config.attn_pdrop = random.uniform(0.0, 0.2)
 
-    config.model_type = None
     config.is_proxy_for_fx = True
     
     return config

@@ -1,54 +1,13 @@
+import math
+import logging
+
 import torch
 import torch.nn as nn
-import math
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
-from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
+from ..individual_graph_module import NeuralNetworkIndividualGraphModule
 
-
-def find_required_shapes(node):
-    """
-    Finds the required shapes for a given node in the graph.
-    
-    Args:
-        graph: The FX graph
-        node: The node to find the required shapes for
-    Returns:
-        input_shape: The required shape of the input nodes, can be a list of shapes if the node has multiple inputs
-        output_shape: The required shape of the output node
-    """
-    # if placeholder
-    if node.op == 'placeholder':
-        return (None, tuple(node.meta['tensor_meta'].shape))
-    else:
-        # required input shape of any given node is found in the meta of any node that feeds into it
-        # check the node args for the nodes that feed into the current node
-        def get_shape(arg):
-            if isinstance(arg, torch.fx.Node):
-                try:
-                    return list(arg.meta['tensor_meta'].shape)
-                except:
-                    print(f"Error getting shape for node {arg}")
-                    return None
-            elif isinstance(arg, list):
-                return [get_shape(sub_arg) for sub_arg in arg if isinstance(sub_arg, torch.fx.Node) or isinstance(sub_arg, list)]
-            else:
-                return None
-        
-        # Get shapes of all arguments
-        input_shape = []
-        for arg in node.args:
-            # only consider the arg if it is a node or a list of nodes
-            if isinstance(arg, torch.fx.Node) or isinstance(arg, list):
-                shape = get_shape(arg)
-                if shape is not None:
-                    input_shape.append(shape)
-        input_shape = input_shape[0] if len(input_shape) == 1 else input_shape if input_shape else None
-        
-        # required output shape can be found in the meta of the node
-        output_shape = list(node.meta['tensor_meta'].shape)
-        return (input_shape, output_shape)
 
 def get_unique_name(graph, base_name: str) -> str:
     """
@@ -132,7 +91,7 @@ def add_specific_node(graph, reference_node, module_or_function, kwargs=None, ta
     else:
         new_node.args = (reference_node,)
     
-    print(f"Added node {new_node.name} after node {reference_node.name}")
+    logging.debug(f"Added node {new_node.name} after node {reference_node.name}")
     return graph, new_node
 
 def add_skip_connection(graph, second_node, first_node, torch_function=torch.add):
@@ -199,7 +158,7 @@ def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_
                 kwargs={"repeats": length_multiplier, "dim": 1},
                 target_user=target_user  # Intermediate node
             )
-            print(f"Added repeat node {repeat_node.name} after node {node.name}, repeats: {length_multiplier}")
+            logging.debug(f"Added repeat node {repeat_node.name} after node {node.name}, repeats: {length_multiplier}")
 
             if remainder > 0:
                 # Then use circular padding for the remainder
@@ -209,7 +168,7 @@ def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_
                     nn.CircularPad1d((0, remainder)),
                     target_user=target_user
                 )
-                print(f"Added circular pad node {adapted_node.name} after repeat node {repeat_node.name}, remainder: {remainder}")
+                logging.debug(f"Added circular pad node {adapted_node.name} after repeat node {repeat_node.name}, remainder: {remainder}")
             else:
                 adapted_node = repeat_node
         else:
@@ -220,7 +179,7 @@ def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_
                 nn.CircularPad1d((0, target_size - current_size)),
                 target_user=target_user
             )
-            print(f"Added circular pad node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
+            logging.debug(f"Added circular pad node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
     else:
         # Need to decrease size - use adaptive pooling
         graph, adapted_node = add_specific_node(
@@ -229,11 +188,21 @@ def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_
             nn.AdaptiveAvgPool1d(target_size),
             target_user=target_user
         )
-        print(f"Added adaptive avg pool node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
+        logging.debug(f"Added adaptive avg pool node {adapted_node.name} after node {node.name}, target size: {target_size}, current size: {current_size}")
 
     return graph, adapted_node
 
-def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
+class ReshapeModule(nn.Module):
+    """A PyTorch module for reshaping tensors to a specific target size."""
+    
+    def __init__(self, target_size):
+        super().__init__()
+        self.target_size = target_size
+    
+    def forward(self, x):
+        return x.reshape(-1, *self.target_size)
+
+def adapt_node_shape(graph, node, current_size, target_size, target_user=None, try_linear_adapter=True):
     """
     Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
     
@@ -243,6 +212,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
         current_size: Current size of the node's output, no batch dimension
         target_size: Desired size of the node's output, no batch dimension
         target_user: Optional specific node that should use the adapted output. If None, all users will be updated.
+        try_linear_adapter: If True, try using a single linear layer instead of flatten->adapt->unflatten pattern
     Returns:
         graph: The modified graph
         adapted_node: The node after shape adaptation
@@ -259,7 +229,14 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     
     # Handle 1D to 1D case directly
     if current_dims == 1 and target_dims == 1:
-        return _adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user)
+        if try_linear_adapter:
+            return add_specific_node(
+                graph,
+                node,
+                nn.Linear(current_size[0], target_size[0]),
+                target_user=target_user
+            )
+        return _adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user=target_user)
     
     # Calculate total elements
     current_total = math.prod(current_size)
@@ -267,30 +244,34 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     
     # If total elements are the same, just reshape and return
     if current_total == target_total:
-        graph, reshape_node = add_specific_node(
+        return add_specific_node(
             graph,
             node,
-            lambda x: x.reshape(-1, *target_size),
+            ReshapeModule(target_size),
             target_user=target_user
         )
-        return graph, reshape_node
     
-    # Start with the original node
-    current_node = node
+    if try_linear_adapter and current_size[:-1] == target_size[:-1]:  # Only use linear adapter if all but last dims are the same
+        return add_specific_node(
+            graph,
+            node,
+            nn.Linear(current_size[-1], target_size[-1]),
+            target_user=target_user
+        )
     
     # Step 1: Flatten if starting from multi-dimensional (2+:1 or 2+:2+)
     if current_dims > 1:
-        graph, current_node = add_specific_node(
+        graph, node = add_specific_node(
             graph, 
-            current_node, 
+            node, 
             nn.Flatten(start_dim=1, end_dim=-1),
             target_user=target_user
         )
     
     # Step 2: Adapt tensor size (total elements differ, so this is always needed)
-    graph, current_node = _adapt_tensor_size(
+    graph, node = _adapt_tensor_size(
         graph, 
-        current_node, 
+        node, 
         current_total, 
         target_total, 
         target_user=target_user
@@ -298,14 +279,14 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     
     # Step 3: Unflatten if ending with multi-dimensional (1:2+ or 2+:2+)
     if target_dims > 1:
-        graph, current_node = add_specific_node(
+        graph, node = add_specific_node(
             graph, 
-            current_node, 
+            node, 
             nn.Unflatten(dim=1, unflattened_size=target_size),
             target_user=target_user
         )
     
-    return graph, current_node
+    return graph, node
 
 def add_branch_nodes(graph: NeuralNetworkIndividualGraphModule, reference_node, branch1_module, branch2_module):
     """
@@ -397,3 +378,21 @@ def get_feature_dims(shape):
 
 def node_has_shape(node: torch.fx.Node):
     return "tensor_meta" in node.meta and hasattr(node.meta["tensor_meta"], "shape")
+
+def node_has_float_dtype(node: torch.fx.Node):
+    """
+    Check if a node has a float tensor dtype.
+    
+    Args:
+        node: The FX node to check
+    Returns:
+        bool: True if the node has a float dtype, False otherwise
+    """
+    if not hasattr(node, 'meta') or 'tensor_meta' not in node.meta:
+        return False
+    
+    tensor_dtype = node.meta['tensor_meta'].dtype
+    # Check if dtype is one of the PyTorch float types
+    float_dtypes = [torch.float32, torch.float64, torch.float16, torch.bfloat16, 
+                   torch.float8_e5m2, torch.float8_e4m3fn, torch.float, torch.double, torch.half]
+    return tensor_dtype in float_dtypes

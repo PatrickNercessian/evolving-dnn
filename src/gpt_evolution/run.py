@@ -1,103 +1,193 @@
-import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# TODO remove above
+import argparse
 
-from src.nn.bpe import tokenize_string, VOCAB_SIZE
-from src.gpt_evolution.initial_population import generate_initial_population
-from src.nn.evaluate import calculate_fitness
-from src.nn.individual import NeuralNetworkIndividual
-from src.nn.evolution import NeuralNetworkEvolution
-from src.nn.dataset import TextDataset
-from src.nn.variation.hyperparam_variation import (
+import json
+import logging
+
+from ..gpt_evolution.initial_population import generate_initial_population
+from ..gpt_evolution.helpers import set_random_seeds, deep_merge_dicts
+from ..nn.evaluate import calculate_fitness
+from ..nn.individual import NeuralNetworkIndividual
+from ..nn.evolution import NeuralNetworkEvolution
+from ..nn.visualization import log_best_individual
+from ..nn.variation.hyperparam_variation import (
     mutate_batch_size, crossover_batch_size,
     mutate_learning_rate, crossover_learning_rate,
     mutate_learning_rate_scheduler, crossover_learning_rate_scheduler,
     mutate_optimizer_parameters, crossover_optimizer_parameters,
 )
-from src.nn.variation.architecture_mutation import mutation_add_linear, mutation_add_relu, mutation_add_skip_connection, mutation_add_branch, mutation_remove_node
-from src.nn.variation.architecture_crossover import crossover_subgraph
+from ..nn.variation.architecture_mutation import (
+    mutation_add_linear, mutation_add_relu, mutation_add_skip_connection,
+    mutation_add_branch, mutation_remove_node
+)
+from ..nn.variation.architecture_crossover import crossover_subgraph
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+from datasets import load_dataset
+from tokenizers import Tokenizer
+from tokenizers.models import BPE
+from tokenizers.trainers import BpeTrainer
+from tokenizers.pre_tokenizers import Whitespace
 import torch
-import os
+
+VOCAB_SIZE = 2000
+RANDOM_SEED = 42
+
+def configure_logger(experiment_path, logging_config):
+    debug_log_file = os.path.join(experiment_path, "evolution_run_debug.log")
+    info_log_file = os.path.join(experiment_path, "evolution_run.log")
+    
+    # Configure root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    
+    # Create formatter
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    
+    # Determine file mode based on config
+    file_mode = 'w' if logging_config.get("overwrite_logs", False) else 'a'
+    
+    # Handler for DEBUG and above (all messages) - goes to debug file
+    debug_handler = logging.FileHandler(debug_log_file, mode=file_mode)
+    debug_handler.setLevel(logging.DEBUG)
+    debug_handler.setFormatter(formatter)
+    
+    # Handler for WARNING and above only - goes to warnings file
+    info_handler = logging.FileHandler(info_log_file, mode=file_mode)
+    info_handler.setLevel(logging.INFO)
+    info_handler.setFormatter(formatter)
+    
+    # Console handler for INFO and above
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    
+    # Add handlers to logger
+    logger.addHandler(debug_handler)
+    logger.addHandler(info_handler)
+    logger.addHandler(console_handler)
+
+    # Silence verbose loggers
+    for logger_name in ["urllib3", "datasets", "huggingface_hub", "fsspec"]:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 if __name__ == '__main__':
-    print("Starting GPT evolution run")
-
-    if os.path.exists('tokenized_data.pt'):
-        data = torch.load('tokenized_data.pt')  # Save the tokenized data tensor to a file
-    else:
-        # Load, tokenize and save the input text
-        with open('mingpt/input.txt', 'r', encoding='utf-8') as f:
-            text = f.read()
-        data = tokenize_string(text)
-        torch.save(data, 'tokenized_data.pt')
-
-    BLOCK_SIZE = 128
-
-    train_dataset = TextDataset(data, BLOCK_SIZE)
-
-    TARGET_POPULATION_SIZE = 5
-    NUM_CHILDREN_PER_GENERATION = 5
-
-    gpt_config_params = {
-        "block_size": BLOCK_SIZE,
-        "layer_bounds": (2, 5),
-        "head_bounds": (2, 5),
-        "embed_bounds": (128, 512),
-    }
-    train_config_params = { "max_iters": 1, "device": "cpu" }
-
-    val_loader = torch.utils.data.DataLoader(
-        train_dataset,  # Using same dataset for validation for now
-        batch_size=32,
-        num_workers=0,
-        pin_memory=True
+    parser = argparse.ArgumentParser(description="Run GPT Evolution experiment.")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="src/gpt_evolution/default_run_config.json",
+        help="Path to the run configuration JSON file."
     )
+    parser.add_argument(
+        "--experiment_path",
+        type=str,
+        default="./default_experiment_path",
+        help="Path to the experiment directory."
+    )
+    parser.add_argument(
+        "--tokenizer_path",
+        type=str,
+        default="",
+        help="Path to the tokenizer file."
+    )
+    args = parser.parse_args()
+
+    with open('./src/gpt_evolution/default_run_config.json', 'r') as f:
+        default_run_config = json.load(f)
+    with open(args.config, 'r') as f:
+        override_run_config = json.load(f)
+
+    run_config = deep_merge_dicts(default_run_config, override_run_config)
+    experiment_path = args.experiment_path
+    tokenizer_path = args.tokenizer_path
+
+    tokenizer_config = run_config["tokenizer"]
+    evolution_config = run_config["evolution"]
+    training_config = run_config["training"]
+    gpt_config = run_config["gpt_config"]
+
+    os.makedirs(experiment_path, exist_ok=True)
+
+    configure_logger(experiment_path, run_config.get("logging", {"overwrite_logs": False}))
+
+    set_random_seeds(evolution_config["random_seed"])
+
+    load_dataset_constant_kwargs = {"path": tokenizer_config["dataset"], "name": tokenizer_config["dataset_name"], "streaming": True}
+    if "data_files_prefixes" in tokenizer_config:
+        suffix = tokenizer_config["data_files_suffix"]
+        train_data_files = [f"{prefix}{suffix}" for prefix in tokenizer_config["data_files_prefixes"]["train"]]
+        validation_data_files = [f"{prefix}{suffix}" for prefix in tokenizer_config["data_files_prefixes"]["validation"]]
+        iterable_train_dataset = load_dataset(**load_dataset_constant_kwargs, split="train", data_dir=tokenizer_config["data_dir"], data_files=train_data_files)
+        iterable_validation_dataset = load_dataset(**load_dataset_constant_kwargs, split="train", data_dir=tokenizer_config["data_dir"], data_files=validation_data_files)
+    else:
+        datasets = load_dataset(**load_dataset_constant_kwargs)
+        iterable_train_dataset = datasets["train"]
+        iterable_validation_dataset = datasets["validation"]
+
+    if not tokenizer_path:
+        tokenizer_path = os.path.join(experiment_path, tokenizer_config["tokenizer_filename"])
+    if os.path.exists(tokenizer_path):
+        logging.info("Loading tokenizer from file")
+        tokenizer = Tokenizer.from_file(tokenizer_path)
+        tokenizer.save(os.path.join(experiment_path, tokenizer_config["tokenizer_filename"]))  # bring to new experiment path for cohesive storage
+    else:
+        tokenizer = Tokenizer(BPE())
+        tokenizer.pre_tokenizer = Whitespace()
+
+        def text_generator():
+            count = 0
+            total_samples = tokenizer_config.get("tokenizer_training_samples", 10000)  # Default to 10k samples
+            for example in iterable_train_dataset:
+                if count >= total_samples:
+                    break
+                yield example["text"]
+                count += 1
+        
+        tokenizer.train_from_iterator(text_generator(), trainer=BpeTrainer(vocab_size=tokenizer_config["vocab_size"]))
+        tokenizer.save(tokenizer_path)
+
+    train_config_params = {
+        "max_iters": training_config["max_iters"],
+        "device": training_config["device"],
+    }
 
     # Create a wrapper for calculate_fitness that only takes individual
     def fitness_wrapper(individual: NeuralNetworkIndividual) -> float:
         return calculate_fitness(
             individual,
-            train_dataset,
-            val_loader,
+            iterable_train_dataset,
+            iterable_validation_dataset,
+            tokenizer,
+            block_size=gpt_config["block_size"],
             device=train_config_params["device"],
+            loss_log_frequency=training_config.get("loss_log_frequency", 100),
+            max_iter_timeout=training_config.get("max_iter_timeout", 20.0),
+            secondary_iter_timeout=training_config.get("secondary_iter_timeout", 0.2),
         )
-    
-    EXPERIMENT_PATH = "experiments/test4"
-
-    os.makedirs(EXPERIMENT_PATH, exist_ok=True)
 
     evolution = NeuralNetworkEvolution(
         population=generate_initial_population(
-            TARGET_POPULATION_SIZE,
-            VOCAB_SIZE,
-            gpt_config_params,
+            evolution_config["target_population_size"],
+            tokenizer_config["vocab_size"],
+            gpt_config,
             train_config_params,
         ),
-        fitness_fn=fitness_wrapper,  # Now only takes individual as parameter
-        crossover_instead_of_mutation_rate=0.5,
-        mutation_fns_and_probabilities=[
-            (mutate_batch_size, 0.2),
-            (mutate_learning_rate, 0.2),
-            (mutate_learning_rate_scheduler, 0.2),
-            (mutate_optimizer_parameters, 0.2),
-            (mutation_add_linear, 0.2),
-            (mutation_add_relu, 0.2),
-            (mutation_add_skip_connection, 0.2),
-            (mutation_add_branch, 0.2),
-            (mutation_remove_node, 0.2),
-
+        fitness_fn=fitness_wrapper,
+        crossover_instead_of_mutation_rate=evolution_config["crossover_instead_of_mutation_rate"],
+        mutation_fns_and_probabilities=[  # These need to be imported above for it to work
+            (globals()[name], prob) for name, prob in evolution_config["mutation_probabilities"].items()
         ],
-        crossover_fns_and_probabilities=[
-            (crossover_subgraph, 0.3),
-            (crossover_batch_size, 0.3),
-            (crossover_learning_rate, 0.3),
-            (crossover_learning_rate_scheduler, 0.3),
-            (crossover_optimizer_parameters, 0.3),
+        crossover_fns_and_probabilities=[  # These need to be imported above for it to work
+            (globals()[name], prob) for name, prob in evolution_config["crossover_probabilities"].items()
         ],
-        target_population_size=TARGET_POPULATION_SIZE,
-        num_children_per_generation=NUM_CHILDREN_PER_GENERATION,
-        experiment_path=EXPERIMENT_PATH,
+        target_population_size=evolution_config["target_population_size"],
+        num_children_per_generation=evolution_config["num_children_per_generation"],
+        experiment_path=experiment_path,
+        visualize_graphs=run_config.get("visualization", True),
+        unremovable_node_targets=evolution_config.get("unremovable_node_targets", []),
     )
-    evolution.run_evolution(10)
+    evolution.run_evolution(evolution_config["num_generations"])
+
+    log_best_individual(evolution, experiment_path, run_config.get("logging", {}).get("overwrite_logs", False))
