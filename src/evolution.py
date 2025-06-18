@@ -155,7 +155,7 @@ class Evolution:
         for mutation_fn, probability in self.mutation_fns_and_probabilities:
             if random.random() < probability:
                 logging.info(f"Mutating {child.id} with {mutation_fn.__name__}")
-                mutation_fn(child)
+                mutation_fn(child, **self.kwargs)
         return child
     
     def _selection(self) -> list[Individual]:

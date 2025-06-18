@@ -3,7 +3,7 @@ import logging
 import numpy as np
 from ..individual import NeuralNetworkIndividual
 
-def mutate_batch_size(individual: NeuralNetworkIndividual) -> NeuralNetworkIndividual:
+def mutate_batch_size(individual: NeuralNetworkIndividual, **kwargs) -> NeuralNetworkIndividual:
     """
     Mutate batch size using a normal distribution centered on current value.
     Ensures the result stays within reasonable bounds.
@@ -19,7 +19,7 @@ def mutate_batch_size(individual: NeuralNetworkIndividual) -> NeuralNetworkIndiv
     logging.debug(f"Mutated batch size from {current_batch_size} to {new_batch_size}")
     individual.train_config.batch_size = new_batch_size
 
-def mutate_learning_rate(individual: NeuralNetworkIndividual) -> NeuralNetworkIndividual:
+def mutate_learning_rate(individual: NeuralNetworkIndividual, **kwargs) -> NeuralNetworkIndividual:
     """
     Mutate learning rate using a log-normal distribution to ensure positive values.
     """
@@ -33,7 +33,7 @@ def mutate_learning_rate(individual: NeuralNetworkIndividual) -> NeuralNetworkIn
     logging.debug(f"Mutated learning rate from {current_lr} to {new_lr}")
     individual.train_config.learning_rate = float(new_lr)
 
-def mutate_learning_rate_scheduler(individual: NeuralNetworkIndividual) -> NeuralNetworkIndividual:
+def mutate_learning_rate_scheduler(individual: NeuralNetworkIndividual, **kwargs) -> NeuralNetworkIndividual:
     """
     Mutate learning rate scheduler parameters (beta1 and beta2).
     """
@@ -50,7 +50,7 @@ def mutate_learning_rate_scheduler(individual: NeuralNetworkIndividual) -> Neura
     logging.debug(f"Mutated learning rate scheduler betas for beta1 {current_beta1} and beta2 {current_beta2} to beta1 {new_beta1} and beta2 {new_beta2}")
     individual.train_config.betas = (float(new_beta1), float(new_beta2))
 
-def mutate_optimizer_parameters(individual: NeuralNetworkIndividual) -> NeuralNetworkIndividual:
+def mutate_optimizer_parameters(individual: NeuralNetworkIndividual, **kwargs) -> NeuralNetworkIndividual:
     """
     Mutate optimizer-related parameters (weight_decay and grad_norm_clip).
     """

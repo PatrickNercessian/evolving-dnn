@@ -185,7 +185,8 @@ if __name__ == '__main__':
         target_population_size=evolution_config["target_population_size"],
         num_children_per_generation=evolution_config["num_children_per_generation"],
         experiment_path=experiment_path,
-        visualize_graphs=run_config.get("visualization", True)
+        visualize_graphs=run_config.get("visualization", True),
+        unremovable_node_targets=evolution_config.get("unremovable_node_targets", []),
     )
     evolution.run_evolution(evolution_config["num_generations"])
 

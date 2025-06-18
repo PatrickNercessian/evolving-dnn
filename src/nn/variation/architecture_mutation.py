@@ -14,7 +14,7 @@ from ..variation.utils import (
 )
 
 
-def mutation_add_linear(individual):
+def mutation_add_linear(individual, **kwargs):
     existing_param_count = individual.param_count
     # Find a random node in the graph to add a linear layer after
     eligible_nodes = _get_eligible_nodes(individual)
@@ -53,7 +53,7 @@ def mutation_add_linear(individual):
     return individual
 
 
-def mutation_add_relu(individual):
+def mutation_add_relu(individual, **kwargs):
     # Find a random node in the graph to add a ReLU layer after
     eligible_nodes = _get_eligible_nodes(individual)
     if not eligible_nodes:
@@ -95,7 +95,7 @@ def mutation_add_skip_connection(individual, **kwargs):
     return individual
 
 
-def mutation_add_branch(individual):
+def mutation_add_branch(individual, **kwargs):
     # Find a random node in the graph to add branches after
     eligible_nodes = _get_eligible_nodes(individual)
     
@@ -131,18 +131,20 @@ def mutation_add_branch(individual):
     return individual
 
 
-def mutation_remove_node(individual):
+def mutation_remove_node(individual, unremovable_node_targets=None, **kwargs):
+    unremovable_node_targets = unremovable_node_targets or []
     # Find eligible nodes to remove (not input, output, or critical nodes)
     nodes = list(individual.graph_module.graph.nodes)
     possible_nodes = _get_eligible_nodes(individual, nodes)
+    removable_nodes = [node for node in possible_nodes if node.target not in unremovable_node_targets]
     
     # Raise error if there's only one node in the graph
-    if len(possible_nodes) <= 1:
-        logging.warning(f"There's {len(possible_nodes)} node(s) in the graph, can't remove any")
+    if len(removable_nodes) <= 1:
+        logging.warning(f"There's {len(removable_nodes)} removable node in the graph, can't remove any")
         return individual
 
     # Select a random node to remove
-    node_to_remove = random.choice(possible_nodes)
+    node_to_remove = random.choice(removable_nodes)
     logging.debug(f"Removing node: {node_to_remove.name}")
     
     # Remove the node
@@ -152,7 +154,7 @@ def mutation_remove_node(individual):
 
 def _get_eligible_nodes(individual, nodes=None):
     """
-    Returns all nodes in the graph that have shape information and excludes placeholder and output nodes.
+    Returns all nodes in the graph that have shape information and excludes certain nodes
     """
     if nodes is None:
         nodes = list(individual.graph_module.graph.nodes)
