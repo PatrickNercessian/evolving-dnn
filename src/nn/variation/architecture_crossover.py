@@ -27,7 +27,8 @@ def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndi
     subgraph_nodes = set()
     lowest_num_boundary_nodes = float('inf')
     broken_subgraphs = 0
-    for attempt in range(100):
+    max_subgraph_attempts = kwargs.get("max_subgraph_attempts", 100)
+    for attempt in range(max_subgraph_attempts):
         try:
             num_nodes = random.randint(MIN_NODES, MAX_NODES)
             subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(parent.graph_module, num_nodes)
