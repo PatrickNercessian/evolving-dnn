@@ -14,25 +14,27 @@ The project uses evolutionary algorithms to:
 
 ```
 src/
-├── evolution.py              # Core evolutionary algorithm framework
-├── individual.py             # Base individual class
-├── nn/                       # Neural network specific implementations
-│   ├── core.py              # Graph representation utilities
-│   ├── individual.py        # Neural network individual class
+├── evolution.py      # Core evolutionary algorithm framework
+├── individual.py     # Base individual class
+├── nn/               # Neural network specific implementations
+│   ├── core.py                     # Graph representation utilities
+│   ├── individual.py               # Neural network individual class
 │   ├── individual_graph_module.py  # PyTorch FX graph module wrapper
-│   ├── evolution.py         # NN-specific evolution class
-│   ├── evaluate.py          # Fitness evaluation (perplexity-based)
-│   ├── dataset.py           # Text dataset for training
-│   ├── bpe.py               # Basic BPE tokenization
-│   ├── visualization.py     # Graph visualization utilities
-│   └── variation/           # Mutation and crossover operations
-│       ├── architecture_mutation.py    # Add/remove layers, connections
-│       ├── architecture_crossover.py   # Architecture crossover operations  
-│       ├── hyperparam_variation.py     # Hyperparameter mutations/crossover
-│       └── utils.py         # Helper functions for graph manipulation
-└── gpt_evolution/           # GPT-specific evolution setup
-    ├── run.py               # Main execution script
-    └── initial_population.py  # Generate initial GPT population
+│   ├── evolution.py                # NN-specific evolution class
+│   ├── evaluate.py                 # Fitness evaluation (perplexity-based)
+│   ├── dataset.py                  # Text dataset for training
+│   ├── bpe.py                      # Basic BPE tokenization
+│   ├── visualization.py            # Graph visualization utilities
+│   └── variation/                  # Mutation and crossover operations
+│       ├── architecture_mutation.py     # Add/remove layers, connections
+│       ├── architecture_crossover.py    # Architecture crossover operations  
+│       ├── hyperparam_variation.py      # Hyperparameter mutations/crossover
+│       └── utils.py                     # Helper functions for graph manipulation
+└── gpt_evolution/    # GPT-specific evolution setup
+    ├── run.py                      # Main execution script
+    └── initial_population.py       # Generate initial GPT population
+    └── helpers.py                  # Helper functions for GPT evolution execution
+    └── default_run_config.json     # Default run configuration (can be partially overridden for specific runs)
 ```
 
 ## Key Components
