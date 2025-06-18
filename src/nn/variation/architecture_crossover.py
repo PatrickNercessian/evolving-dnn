@@ -184,7 +184,8 @@ def _has_float_dtype(node: torch.fx.Node):
     if not node_has_shape(node) or not _is_allowed_subgraph_node_type(node):
         return False
     dtype = node.meta["tensor_meta"].dtype
-    return dtype == torch.float32 or dtype == torch.float64
+    float_dtypes = [torch.float32, torch.float64, torch.bfloat16]
+    return dtype in float_dtypes
 
 def find_subgraph_connections(
     target_graph: torch.fx.Graph,
