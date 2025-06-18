@@ -60,7 +60,7 @@ class CausalSelfAttention(nn.Module):
         self.is_proxy_for_fx = config.is_proxy_for_fx
         self.block_size = config.block_size
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, embedding_dim = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
         if self.is_proxy_for_fx:
             sequence_length = self.block_size
