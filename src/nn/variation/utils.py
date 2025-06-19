@@ -269,13 +269,22 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None, t
         )
     
     # Step 2: Adapt tensor size (total elements differ, so this is always needed)
-    graph, node = _adapt_tensor_size(
-        graph, 
-        node, 
-        current_total, 
-        target_total, 
-        target_user=target_user
-    )
+    if try_linear_adapter:
+        # If linear adapter is preferred, use linear layer
+        graph, node = add_specific_node(
+            graph,
+            node,
+            nn.Linear(current_total, target_total),
+            target_user=target_user
+        )
+    else:
+        graph, node = _adapt_tensor_size(
+            graph, 
+            node, 
+            current_total, 
+            target_total, 
+            target_user=target_user
+        )
     
     # Step 3: Unflatten if ending with multi-dimensional (1:2+ or 2+:2+)
     if target_dims > 1:
