@@ -202,7 +202,7 @@ class ReshapeModule(nn.Module):
     def forward(self, x):
         return x.reshape(-1, *self.target_size)
 
-def adapt_node_shape(graph, node, current_size, target_size, target_user=None, try_linear_adapter=True):
+def adapt_node_shape_basic(graph, node, current_size, target_size, target_user=None, adapt_type='regular'):
     """
     Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
     
@@ -212,24 +212,17 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None, t
         current_size: Current size of the node's output, no batch dimension
         target_size: Desired size of the node's output, no batch dimension
         target_user: Optional specific node that should use the adapted output. If None, all users will be updated.
-        try_linear_adapter: If True, try using a single linear layer instead of flatten->adapt->unflatten pattern
+        adapt_type: Type of adaptation to use. Can be 'regular', 'linear', or 'gcf'
     Returns:
         graph: The modified graph
         adapted_node: The node after shape adaptation
     """
-    # Convert current_size and target_size to tuples if they are not already
-    current_size = tuple(current_size)
-    target_size = tuple(target_size)
-    
-    if current_size == target_size:
-        return graph, node
-    
     current_dims = len(current_size)
     target_dims = len(target_size)
     
     # Handle 1D to 1D case directly
     if current_dims == 1 and target_dims == 1:
-        if try_linear_adapter:
+        if adapt_type == 'linear':
             return add_specific_node(
                 graph,
                 node,
@@ -251,7 +244,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None, t
             target_user=target_user
         )
     
-    if try_linear_adapter and current_size[:-1] == target_size[:-1]:  # Only use linear adapter if all but last dims are the same
+    if adapt_type == 'linear' and current_size[:-1] == target_size[:-1]:  # Only use linear adapter if all but last dims are the same
         return add_specific_node(
             graph,
             node,
@@ -269,7 +262,7 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None, t
         )
     
     # Step 2: Adapt tensor size (total elements differ, so this is always needed)
-    if try_linear_adapter:
+    if adapt_type == 'linear':
         # If linear adapter is preferred, use linear layer
         graph, node = add_specific_node(
             graph,
@@ -297,6 +290,198 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None, t
     
     return graph, node
 
+def _reshape_linear_flatten(graph, node, adapt_shape_values: tuple[int, int, int], target_user=None):
+    """
+    Helper function to perform reshape-linear-flatten sequence.
+    
+    Args:
+        graph: The FX graph
+        node: The input node
+        adapt_shape_values: Tuple of dimensions for reshaping
+        target_user: Optional specific node that should use the output
+    Returns:
+        graph: The modified graph
+        output_node: The node after reshape-linear-flatten
+    """
+    # Reshape
+    graph, node = add_specific_node(
+        graph,
+        node,
+        ReshapeModule((adapt_shape_values[0], adapt_shape_values[1])),
+        target_user=target_user
+    )
+
+    # Add linear layer
+    graph, node = add_specific_node(
+        graph,
+        node,
+        nn.Linear(adapt_shape_values[1], adapt_shape_values[2], bias=False),
+        target_user=target_user
+    )
+
+    # Flatten features
+    graph, node = add_specific_node(
+        graph,
+        node,
+        nn.Flatten(start_dim=1, end_dim=-1),
+        target_user=target_user
+    )
+    
+    return graph, node
+
+def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=None):
+    """
+    Args:
+        graph: The FX graph
+        node: The node whose shape needs to be adapted
+        current_size: Current size of the node's output, no batch dimension
+        target_size: Desired size of the node's output, no batch dimension
+        target_user: Optional specific node that should use the adapted output. If None, all users will be updated.
+    Returns:
+        graph: The modified graph
+        adapted_node: The node after shape adaptation
+    """
+    # Get total elements of current_size and target_size
+    current_total = math.prod(current_size)
+    target_total = math.prod(target_size)
+    
+    # Determine if we're upsampling or downsampling
+    is_upsampling = target_total > current_total
+    
+    if is_upsampling:
+        # For upsampling, work with target/current ratio
+        feature_ratio = target_total / current_total
+        r1 = math.floor(feature_ratio)
+        r2 = math.ceil(feature_ratio)
+        if r1 != r2:
+            length_scale = int((target_total - (r2*current_total)) / (r1 - r2))
+        else:
+            length_scale = current_total
+        r1_slice_length = length_scale
+        r1_shape_values = (length_scale, 1, r1)
+        r2_slice_length = current_total - r1_slice_length
+        r2_shape_values = (r2_slice_length, 1, r2)
+    else:
+        # For downsampling, work with current/target ratio
+        feature_ratio = current_total / target_total
+        r1 = math.floor(feature_ratio)
+        r2 = math.ceil(feature_ratio)
+        # Only process if r1 != r2
+        if r1 != r2:
+            length_scale = int((current_total - (r2*target_total)) / (r1 - r2))
+        else:
+            length_scale = current_total
+        r1_slice_length = r1 * length_scale
+        r1_shape_values = (length_scale, r1, 1)
+        r2_slice_length = current_total - r1_slice_length
+        r2_shape_values = (r2_slice_length//r2, r2, 1)
+
+    # If dims>1, flatten the node
+    if len(current_size) > 1:
+        graph, node = add_specific_node(
+            graph,
+            node,
+            nn.Flatten(start_dim=1, end_dim=-1),
+        )
+       
+    if r1 != r2:
+        # Create a slicing operation to get the first part
+        graph, r1_node = add_specific_node(
+            graph,
+            node,
+            torch.narrow,
+            kwargs={"dim": 1, "start": 0, "length": r1_slice_length},
+            target_user=target_user
+        )
+    else:
+        r1_node = node
+
+    # Only apply reshape-linear-flatten if r1 > 1
+    if r1 > 1:
+        graph, r1_node = _reshape_linear_flatten(graph, r1_node, r1_shape_values, target_user)
+    
+    # Chunking needed if r1 != r2
+    if r1 != r2:
+        # Create a slicing operation for the second part
+        graph, r2_node = add_specific_node(
+            graph,
+            node,
+            torch.narrow,
+            kwargs={"dim": 1, "start": r1_slice_length, "length": r2_slice_length},
+            target_user=target_user
+        )
+        
+        # Reshape and flatten the second part
+        graph, r2_node = _reshape_linear_flatten(graph, r2_node, r2_shape_values, target_user)
+
+        # Concatenate the two nodes along the last dimension
+        graph, concat_node = add_specific_node(
+            graph,
+            r2_node,
+            torch.cat,
+            kwargs={"dim": -1},
+            target_user=target_user
+        )
+        
+        # Set the args to concatenate r1_node and r2_node
+        concat_node.args = ([r1_node, r2_node],)
+    else:
+        concat_node = r1_node
+    
+    # If target dimensions are greater than 1, unflatten to the target shape
+    if len(target_size) > 1:
+        graph, concat_node = add_specific_node(
+            graph,
+            concat_node,
+            nn.Unflatten(dim=1, unflattened_size=target_size),
+            target_user=target_user
+        )
+    
+    return graph, concat_node
+    
+def adapt_node_shape(graph, node, current_size, target_size, target_user=None, adapt_type='regular'):
+    """
+    Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
+    
+    Args:
+        graph: The FX graph
+        node: The node whose shape needs to be adapted
+        current_size: Current size of the node's output, no batch dimension
+        target_size: Desired size of the node's output, no batch dimension
+        target_user: Optional specific node that should use the adapted output. If None, all users will be updated.
+        adapt_type: Type of adaptation to use. Can be 'regular', 'linear', or 'gcf'
+    Returns:
+        graph: The modified graph
+        adapted_node: The node after shape adaptation
+    """
+    # Convert current_size and target_size to tuples if they are not already
+    current_size = tuple(current_size)
+    target_size = tuple(target_size)
+    
+    
+    # If current_size = target_size, return the node
+    if current_size == target_size:
+        return graph, node
+    
+    # Get total elements of current_size and target_size
+    current_total = math.prod(current_size)
+    target_total = math.prod(target_size)
+    
+    # If current_total = target_total, return a reshape node
+    if current_total == target_total:
+        return add_specific_node(
+            graph,
+            node,
+            ReshapeModule(target_size),
+            target_user=target_user
+        )
+    
+    if adapt_type == 'gcf':
+        return gcf_adapt_node_shape(graph, node, current_size, target_size, target_user)
+    else:
+        return adapt_node_shape_basic(graph, node, current_size, target_size, target_user, adapt_type)
+    
+    
 def add_branch_nodes(graph: NeuralNetworkIndividualGraphModule, reference_node, branch1_module, branch2_module):
     """
     Adds two branch nodes in parallel after the reference node and connects them with a skip connection.
