@@ -7,7 +7,8 @@ import os
 import torch
 
 from ..individual import NeuralNetworkIndividual
-from ..variation.utils import adapt_node_shape, get_unique_name, node_has_shape
+from ..variation.utils import get_unique_name, node_has_shape
+from ..variation.architecture_adaptation import adapt_node_shape
 from ..visualization import visualize_graph
 
 from torch.fx.passes.shape_prop import ShapeProp

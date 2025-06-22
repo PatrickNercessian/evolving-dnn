@@ -9,9 +9,11 @@ from torch.fx.passes.shape_prop import ShapeProp
 
 from ..individual_graph_module import NeuralNetworkIndividualGraphModule
 from ..variation.utils import (
-    node_has_shape, add_specific_node, add_skip_connection,
-    adapt_node_shape, add_branch_nodes, get_feature_dims, node_has_float_dtype, print_graph_debug_info
+    node_has_shape, add_specific_node, add_skip_connection, 
+    get_feature_dims, node_has_float_dtype, print_graph_debug_info, get_unique_name
 )
+from ..variation.architecture_adaptation import adapt_node_shape, add_branch_nodes
+from ..visualization import visualize_graph
 
 
 def mutation_add_linear(individual, **kwargs):
