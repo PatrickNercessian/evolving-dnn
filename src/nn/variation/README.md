@@ -1,6 +1,6 @@
 # Universal Low-Rank Ratio Preserving Adaptor
 
-This repository presents an efficient method for constructing **low-rank linear transformations** between high-dimensional feature spaces. Unlike typical low-rank adaptation methods that create information bottlenecks through a single reduced dimension, our approach maintains full feature access through parallel pathways. The method guarantees:
+An efficient method for constructing **low-rank linear transformations** between high-dimensional feature spaces. Unlike typical low-rank adaptation methods that create information bottlenecks through a single reduced dimension, our approach maintains full feature access through parallel pathways. The method guarantees:
 
 - **Preservation of the global input/output ratio**
 - **No bottlenecks or chokepoints** that could limit information flow
