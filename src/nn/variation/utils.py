@@ -290,7 +290,7 @@ def adapt_node_shape_basic(graph, node, current_size, target_size, target_user=N
     
     return graph, node
 
-def _reshape_linear_flatten(graph, node, adapt_shape_values: tuple[int, int, int], target_user=None):
+def _unflatten_linear_flatten(graph, node, adapt_shape_values: tuple[int, int, int], target_user=None):
     """
     Helper function to perform reshape-linear-flatten sequence.
     
@@ -307,7 +307,7 @@ def _reshape_linear_flatten(graph, node, adapt_shape_values: tuple[int, int, int
     graph, node = add_specific_node(
         graph,
         node,
-        ReshapeModule((adapt_shape_values[0], adapt_shape_values[1])),
+        nn.Unflatten(dim=1, unflattened_size=(adapt_shape_values[0], adapt_shape_values[1])),
         target_user=target_user
     )
 
@@ -344,9 +344,11 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
     # Get total elements of current_size and target_size
     current_total = math.prod(current_size)
     target_total = math.prod(target_size)
+    logging.debug(f"Shape adaptation: {current_size} -> {target_size} (total elements: {current_total} -> {target_total})")
     
     # Determine if we're upsampling or downsampling
     is_upsampling = target_total > current_total
+    logging.debug(f"Operation type: {'upsampling' if is_upsampling else 'downsampling'}")
     
     if is_upsampling:
         # For upsampling, work with target/current ratio
@@ -361,6 +363,7 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
         r1_shape_values = (length_scale, 1, r1)
         r2_slice_length = current_total - r1_slice_length
         r2_shape_values = (r2_slice_length, 1, r2)
+        logging.debug(f"Upsampling ratios: r1={r1}, r2={r2}, scale={length_scale}")
     else:
         # For downsampling, work with current/target ratio
         feature_ratio = current_total / target_total
@@ -375,17 +378,21 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
         r1_shape_values = (length_scale, r1, 1)
         r2_slice_length = current_total - r1_slice_length
         r2_shape_values = (r2_slice_length//r2, r2, 1)
+        logging.debug(f"Downsampling ratios: r1={r1}, r2={r2}, scale={length_scale}")
 
     # If dims>1, flatten the node
     if len(current_size) > 1:
+        logging.debug(f"Flattening node {node.name} (dims={len(current_size)})")
         graph, node = add_specific_node(
             graph,
             node,
             nn.Flatten(start_dim=1, end_dim=-1),
+            target_user=target_user
         )
        
     if r1 != r2:
         # Create a slicing operation to get the first part
+        logging.debug(f"Slicing first part: dim=1, start=0, length={r1_slice_length}")
         graph, r1_node = add_specific_node(
             graph,
             node,
@@ -393,38 +400,38 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
             kwargs={"dim": 1, "start": 0, "length": r1_slice_length},
             target_user=target_user
         )
+        logging.debug(f"Added narrow node for r1 slice (length={r1_slice_length})")
     else:
         r1_node = node
 
     # Only apply reshape-linear-flatten if r1 > 1
     if r1 > 1:
-        graph, r1_node = _reshape_linear_flatten(graph, r1_node, r1_shape_values, target_user)
+        graph, r1_node = _unflatten_linear_flatten(graph, r1_node, r1_shape_values, target_user)
+        logging.debug(f"Added reshape-linear-flatten sequence for r1 (shape={r1_shape_values})")
     
     # Chunking needed if r1 != r2
     if r1 != r2:
-        # Create a slicing operation for the second part
+        graph, concat_node = add_specific_node(
+            graph,
+            r1_node,
+            torch.cat,
+            target_user=target_user
+        )
+
         graph, r2_node = add_specific_node(
             graph,
             node,
             torch.narrow,
             kwargs={"dim": 1, "start": r1_slice_length, "length": r2_slice_length},
-            target_user=target_user
+            target_user=concat_node
         )
+        logging.debug(f"Added narrow node for r2 slice (length={r2_slice_length})")
         
-        # Reshape and flatten the second part
-        graph, r2_node = _reshape_linear_flatten(graph, r2_node, r2_shape_values, target_user)
-
-        # Concatenate the two nodes along the last dimension
-        graph, concat_node = add_specific_node(
-            graph,
-            r2_node,
-            torch.cat,
-            kwargs={"dim": -1},
-            target_user=target_user
-        )
+        graph, r2_node = _unflatten_linear_flatten(graph, r2_node, r2_shape_values, concat_node)
+        logging.debug(f"Added reshape-linear-flatten sequence for r2 (shape={r2_shape_values})")
         
-        # Set the args to concatenate r1_node and r2_node
-        concat_node.args = ([r1_node, r2_node],)
+        concat_node.args = ((r1_node, r2_node),-1)
+        logging.debug("Added concatenation node")
     else:
         concat_node = r1_node
     
@@ -436,10 +443,11 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
             nn.Unflatten(dim=1, unflattened_size=target_size),
             target_user=target_user
         )
+        logging.debug(f"Added unflatten node to target shape {target_size}")
     
     return graph, concat_node
-    
-def adapt_node_shape(graph, node, current_size, target_size, target_user=None, adapt_type='regular'):
+
+def adapt_node_shape(graph, node, current_size, target_size, target_user=None, adapt_type='gcf'):
     """
     Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
     
@@ -590,3 +598,32 @@ def node_has_float_dtype(node: torch.fx.Node):
     float_dtypes = [torch.float32, torch.float64, torch.float16, torch.bfloat16, 
                    torch.float8_e5m2, torch.float8_e4m3fn, torch.float, torch.double, torch.half, torch.bfloat16]
     return tensor_dtype in float_dtypes
+
+def print_graph_debug_info(graph):
+    """
+    Prints every node in the graph, its name, op, shape (if available), args, and users for debugging.
+    Args:
+        graph: The FX GraphModule or Graph
+    """
+    logging.debug("\n==== GRAPH DEBUG INFO ====")
+    for node in graph.graph.nodes if hasattr(graph, 'graph') else graph.nodes:
+        name = getattr(node, 'name', str(node))
+        op = getattr(node, 'op', 'unknown')
+        # Shape info
+        if hasattr(node, 'meta') and 'tensor_meta' in node.meta and hasattr(node.meta['tensor_meta'], 'shape'):
+            shape = node.meta['tensor_meta'].shape
+        else:
+            shape = 'N/A'
+        # Args info
+        args = []
+        for arg in node.args:
+            if hasattr(arg, 'name'):
+                args.append(arg.name)
+            elif isinstance(arg, (tuple, list)):
+                args.append(str([a.name if hasattr(a, 'name') else repr(a) for a in arg]))
+            else:
+                args.append(repr(arg))
+        # Users info
+        users = [u.name for u in getattr(node, 'users', [])]
+        logging.debug(f"Node: {name} | op: {op} | shape: {shape} | Args: {args} | Users: {users}")
+    logging.debug("==== END GRAPH DEBUG INFO ====")
