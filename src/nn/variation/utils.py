@@ -395,4 +395,5 @@ def node_has_float_dtype(node: torch.fx.Node):
     # Check if dtype is one of the PyTorch float types
     float_dtypes = [torch.float32, torch.float64, torch.float16, torch.bfloat16, 
                    torch.float8_e5m2, torch.float8_e4m3fn, torch.float, torch.double, torch.half, torch.bfloat16]
+
     return tensor_dtype in float_dtypes
