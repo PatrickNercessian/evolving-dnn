@@ -1,0 +1,60 @@
+{
+    "tokenizer": {
+      "vocab_size": 20000,
+      "tokenizer_filename": "tokenizer.json",
+      "input_file": "mingpt/input.txt",
+      "dataset": "HuggingFaceFW/fineweb",
+      "dataset_name": "sample-10BT",
+      "data_dir": "sample/10BT",
+      "data_files_prefixes": {
+        "train": ["000", "001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"],
+        "validation": ["013", "014"]
+      },
+      "data_files_suffix": "_00000.parquet",
+      "tokenizer_training_samples": 10000
+    },
+    "evolution": {
+      "random_seed": 42,
+      "target_population_size": 10,
+      "num_children_per_generation": 10,
+      "num_generations": 10,
+      "crossover_instead_of_mutation_rate": 0.5,
+      "unremovable_node_targets": ["torch.nn.functional.softmax"],
+      "mutation_probabilities": {
+        "mutate_batch_size": 0.2,
+        "mutate_learning_rate": 0.2,
+        "mutate_learning_rate_scheduler": 0.2,
+        "mutate_optimizer_parameters": 0.2,
+        "mutation_add_linear": 0.2,
+        "mutation_add_relu": 0.2,
+        "mutation_add_skip_connection": 0.2,
+        "mutation_add_branch": 0.2,
+        "mutation_remove_node": 0.2
+      },
+      "crossover_probabilities": {
+        "crossover_subgraph": 0.35,
+        "crossover_batch_size": 0.35,
+        "crossover_learning_rate": 0.35,
+        "crossover_learning_rate_scheduler": 0.35,
+        "crossover_optimizer_parameters": 0.35
+      }
+    },
+    "gpt_config": {
+      "block_size": 128,
+      "layer_bounds": [2, 5],
+      "head_bounds": [2, 5],
+      "embed_bounds": [128, 512]
+    },
+    "training": {
+      "max_iters": 1000,
+      "device": "cuda",
+      "validation_batch_size": 32,
+      "loss_log_frequency": 100,
+      "max_iter_timeout": 20.0,
+      "secondary_iter_timeout": 0.2
+    },
+    "logging": {
+      "overwrite_logs": false  
+    },
+    "visualization":  true
+}

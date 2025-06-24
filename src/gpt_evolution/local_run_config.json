@@ -1,0 +1,9 @@
+{
+    "training": {
+      "max_iters": 10,
+      "device": "cpu",
+      "loss_log_frequency": 5,
+      "max_iter_timeout": 20.0,
+      "secondary_iter_timeout": 3
+    }
+}

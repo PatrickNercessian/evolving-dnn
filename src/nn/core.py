@@ -1,9 +1,11 @@
+import logging
+
 import torch
 import torch.nn as nn
 import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
-from src.nn.individual_graph_module import NeuralNetworkIndividualGraphModule
+from .individual_graph_module import NeuralNetworkIndividualGraphModule
 
 
 def get_graph(model: nn.Module, input_shape: tuple|None = None, example_input: torch.Tensor|None = None):
@@ -39,7 +41,6 @@ def get_graph(model: nn.Module, input_shape: tuple|None = None, example_input: t
         }
         
         # Run shape propagation
-        print("example_input", example_input)
         ShapeProp(graph).propagate(example_input)  # SHAPE NOTE: Shape propagation uses full shape including batch dimension
     
     return graph

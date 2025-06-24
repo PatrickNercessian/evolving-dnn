@@ -7,8 +7,8 @@ from src.nn.core import get_graph
 from src.nn.visualization import visualize_graph
 from src.nn.variation.architecture_crossover import random_subgraph, find_subgraph_connections, insert_subgraph
 
-from mingpt.model import GPT
-from mingpt.utils import CfgNode as CN
+from src.mingpt_altered.model import GPT
+from src.mingpt_altered.utils import CfgNode as CN
 
 import torch
 import torch.fx
@@ -19,8 +19,6 @@ MAX_NODES = 32
 if __name__ == "__main__":
     config = CN()
     config.vocab_size = 50257
-    # config.model_type = 'gpt2'
-    config.model_type = None
     config.n_layer = 2
     config.n_head = 2
     config.n_embd = 768
