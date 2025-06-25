@@ -27,21 +27,50 @@ def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndi
     subgraph_nodes = set()
     lowest_num_boundary_nodes = float('inf')
     broken_subgraphs = 0
-    for _ in range(100):
+    max_subgraph_attempts = kwargs.get("max_subgraph_attempts", 100)
+    for attempt in range(max_subgraph_attempts):
         try:
             num_nodes = random.randint(MIN_NODES, MAX_NODES)
             subgraph_nodes, input_boundary_nodes, output_boundary_nodes = random_subgraph(parent.graph_module, num_nodes)
             num_boundary_nodes = len(input_boundary_nodes) + len(output_boundary_nodes)
-            if num_boundary_nodes <= MAX_BOUNDARY_NODES and len(subgraph_nodes) >= MIN_NODES and num_boundary_nodes < lowest_num_boundary_nodes:
-                input_mapping, topo_target_input_nodes, output_mapping = find_subgraph_connections(child.graph_module.graph, input_boundary_nodes, output_boundary_nodes)
-                lowest_num_boundary_nodes = num_boundary_nodes
+            actual_subgraph_size = len(subgraph_nodes)
+            
+            logging.debug(f"Attempt {attempt + 1}: Generated subgraph with {actual_subgraph_size} nodes, {num_boundary_nodes} boundary nodes ({len(input_boundary_nodes)} input + {len(output_boundary_nodes)} output)")
+            
+            # Check constraints
+            if num_boundary_nodes > MAX_BOUNDARY_NODES:
+                logging.debug(f"Attempt {attempt + 1}: REJECTED - too many boundary nodes ({num_boundary_nodes} > {MAX_BOUNDARY_NODES})")
+                continue
+                
+            if actual_subgraph_size < MIN_NODES:
+                logging.debug(f"Attempt {attempt + 1}: REJECTED - too few nodes ({actual_subgraph_size} < {MIN_NODES})")
+                continue
+                
+            # Reject subgraphs without proper input/output boundaries
+            if len(input_boundary_nodes) == 0:
+                logging.debug(f"Attempt {attempt + 1}: REJECTED - no input boundary nodes")
+                continue
+                
+            if len(output_boundary_nodes) == 0:
+                logging.debug(f"Attempt {attempt + 1}: REJECTED - no output boundary nodes")
+                continue
+                
+            if num_boundary_nodes >= lowest_num_boundary_nodes:
+                logging.debug(f"Attempt {attempt + 1}: REJECTED - not better than current best ({num_boundary_nodes} >= {lowest_num_boundary_nodes} boundary nodes)")
+                continue
+            
+            # Try to find connections
+            input_mapping, topo_target_input_nodes, output_mapping = find_subgraph_connections(child.graph_module.graph, input_boundary_nodes, output_boundary_nodes)
+            
+            lowest_num_boundary_nodes = num_boundary_nodes
+            logging.debug(f"Attempt {attempt + 1}: ACCEPTED - new best subgraph with {num_boundary_nodes} boundary nodes")
 
-                insert_subgraph_kwargs = {
-                    "subgraph_nodes": subgraph_nodes,
-                    "input_mapping": input_mapping,
-                    "topo_target_input_nodes": topo_target_input_nodes,
-                    "output_mapping": output_mapping
-                }
+            insert_subgraph_kwargs = {
+                "subgraph_nodes": subgraph_nodes,
+                "input_mapping": input_mapping,
+                "topo_target_input_nodes": topo_target_input_nodes,
+                "output_mapping": output_mapping
+            }
         except ValueError as e:
             logging.warning(f"error finding subgraph: {e}")
             broken_subgraphs += 1
@@ -58,6 +87,8 @@ def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndi
 
     child.graph_module, new_node_names = insert_subgraph(child.graph_module, **insert_subgraph_kwargs)
 
+    # Log successful subgraph insertion
+    logging.info(f"Successfully inserted subgraph with {len(insert_subgraph_kwargs['subgraph_nodes'])} nodes into child {child.id} from parent {parent.id}")
     # Visualize the graph after crossover (only if visualization is enabled)  
     if visualize_graphs:
         visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", os.path.join(crossover_visualization_dir, f"{random_int}_{child.id}_graph_after_crossover_highlighted.svg"), highlight_nodes=new_node_names)
@@ -75,9 +106,15 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     """
     all_nodes = list(graph_module.graph.nodes)
     anchor_node = random.choice(all_nodes)
+    rejected_anchors = 0
     while not _is_allowed_subgraph_node_type(anchor_node):
         logging.warning(f"picked node with non-allowed type or name: {anchor_node.op} {anchor_node.name}")
         anchor_node = random.choice(all_nodes)
+        rejected_anchors += 1
+        if rejected_anchors > 50:  # Safety check to avoid infinite loop
+            raise ValueError(f"Too many rejected anchor nodes ({rejected_anchors}), may indicate graph structure issue")
+    
+    logging.debug(f"Selected anchor node: {anchor_node.name} (type: {anchor_node.op}) after rejecting {rejected_anchors} candidates")
     subgraph_nodes = {anchor_node}
     frontier_nodes = [anchor_node]
     should_continue_past_num_nodes = False
@@ -105,7 +142,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
             if isinstance(arg, torch.fx.Node):
                 if arg in subgraph_nodes:
                     input_mapping[node].append(arg)
-                elif node_has_shape(arg):
+                elif _has_float_dtype(arg):
                     input_mapping[node].append(None)  # placeholder for target graph replacement arg
                 else:  # if neighbor node and has no shape, add it to the subgraph
                     _add_to_subgraph(arg)
@@ -118,7 +155,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
         for user_node in node.users:
             if user_node in subgraph_nodes:
                 output_mapping[node].append(user_node)
-            elif node_has_shape(user_node):
+            elif _has_float_dtype(user_node):
                 output_mapping[node].append(None)  # placeholder for target graph replacement user
             else:  # if neighbor node and has no shape, add it to the subgraph
                 _add_to_subgraph(user_node)
@@ -126,7 +163,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
         if all(user_node is not None for user_node in output_mapping[node]):
             del output_mapping[node]  # if all node outputs are in the subgraph, we don't need to keep the mapping
 
-        if (node in input_mapping or node in output_mapping) and not node_has_shape(node):
+        if (node in input_mapping or node in output_mapping) and not _has_float_dtype(node):
             if node in input_mapping:
                 del input_mapping[node]
                 for arg in node.all_input_nodes:
@@ -140,6 +177,14 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
 
 def _is_allowed_subgraph_node_type(node: torch.fx.Node):
     return node.op != "placeholder" and node.op != "output" and not "cross_entropy" in node.name and not "targets" in node.name
+
+def _has_float_dtype(node: torch.fx.Node):
+    """Check if a node has float dtype (float32 or float64)."""
+    if not node_has_shape(node) or not _is_allowed_subgraph_node_type(node):
+        return False
+    dtype = node.meta["tensor_meta"].dtype
+    float_dtypes = [torch.float32, torch.float64, torch.bfloat16]
+    return dtype in float_dtypes
 
 def find_subgraph_connections(
     target_graph: torch.fx.Graph,
@@ -168,7 +213,7 @@ def find_subgraph_connections(
             return False
             
         # Check tensor metadata
-        if not node_has_shape(node1) or not node_has_shape(node2):
+        if not _has_float_dtype(node1) or not _has_float_dtype(node2):
             return False
         
         if node1.meta["tensor_meta"].dtype != node2.meta["tensor_meta"].dtype:
@@ -191,11 +236,13 @@ def find_subgraph_connections(
         return all_candidates
     
     input_mapping, _ = _select_random_mapping(input_mapping, get_candidates(input_mapping))
+    target_input_nodes = set(node for nodes in input_mapping.values() for node in nodes)
+    
     output_mapping, topo_target_input_nodes = _select_random_mapping(
         output_mapping,
         get_candidates(output_mapping),
         target_graph,
-        target_input_nodes=set(node for nodes in input_mapping.values() for node in nodes)
+       target_input_nodes
     )
     return input_mapping, topo_target_input_nodes, output_mapping
 

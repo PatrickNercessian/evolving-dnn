@@ -186,7 +186,8 @@ if __name__ == '__main__':
         num_children_per_generation=evolution_config["num_children_per_generation"],
         experiment_path=experiment_path,
         visualize_graphs=run_config.get("visualization", True),
-        unremovable_node_targets=evolution_config.get("unremovable_node_targets", []),
+        max_subgraph_attempts=evolution_config.get("max_subgraph_attempts", 100),
+        unremovable_node_targets=evolution_config.get("unremovable_node_targets", [])
     )
     evolution.run_evolution(evolution_config["num_generations"])
 
