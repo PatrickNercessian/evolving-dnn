@@ -90,7 +90,6 @@ def crossover_subgraph(child: NeuralNetworkIndividual, parent: NeuralNetworkIndi
 
     # Log successful subgraph insertion
     logging.info(f"Successfully inserted subgraph with {len(insert_subgraph_kwargs['subgraph_nodes'])} nodes into child {child.id} from parent {parent.id}")
-
     # Visualize the graph after crossover (only if visualization is enabled)  
     if visualize_graphs:
         visualize_graph(child.graph_module, "model_graph_after_crossover_highlighted", os.path.join(crossover_visualization_dir, f"{random_int}_{child.id}_graph_after_crossover_highlighted.svg"), highlight_nodes=new_node_names)
@@ -244,7 +243,7 @@ def find_subgraph_connections(
         output_mapping,
         get_candidates(output_mapping),
         target_graph,
-        target_input_nodes=target_input_nodes
+       target_input_nodes
     )
     return input_mapping, topo_target_input_nodes, output_mapping
 
