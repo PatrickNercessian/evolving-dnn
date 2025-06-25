@@ -242,7 +242,7 @@ def find_subgraph_connections(
         output_mapping,
         get_candidates(output_mapping),
         target_graph,
-        target_input_nodes=target_input_nodes
+       target_input_nodes
     )
     return input_mapping, topo_target_input_nodes, output_mapping
 
