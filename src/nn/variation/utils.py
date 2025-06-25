@@ -237,21 +237,21 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None, t
                 target_user=target_user
             )
         return _adapt_tensor_size(graph, node, current_size[0], target_size[0], target_user=target_user)
-    
-    # Calculate total elements
-    current_total = math.prod(current_size)
-    target_total = math.prod(target_size)
-    
+        
     # If total elements are the same, just reshape and return
-    if current_total == target_total:
+    if math.prod(current_size) == math.prod(target_size):
         return add_specific_node(
             graph,
             node,
             ReshapeModule(target_size),
             target_user=target_user
         )
+
+    for first_different_dim in range(current_dims):
+        if current_size[first_different_dim] != target_size[first_different_dim]:
+            break
     
-    if try_linear_adapter and current_size[:-1] == target_size[:-1]:  # Only use linear adapter if all but last dims are the same
+    if try_linear_adapter and current_dims == target_dims and first_different_dim == current_dims - 1:  # Directly use linear adapter if all but last dims are the same
         return add_specific_node(
             graph,
             node,
@@ -259,30 +259,42 @@ def adapt_node_shape(graph, node, current_size, target_size, target_user=None, t
             target_user=target_user
         )
     
+    current_total_differing_dimensions = math.prod(current_size[first_different_dim:])
+    target_total_differing_dimensions = math.prod(target_size[first_different_dim:])
+    
     # Step 1: Flatten if starting from multi-dimensional (2+:1 or 2+:2+)
-    if current_dims > 1:
+    if first_different_dim < current_dims - 1:
         graph, node = add_specific_node(
             graph, 
             node, 
-            nn.Flatten(start_dim=1, end_dim=-1),
+            nn.Flatten(start_dim=first_different_dim + 1),  # Plus one because first_different_dim was basd on size without batch dimension
             target_user=target_user
         )
     
-    # Step 2: Adapt tensor size (total elements differ, so this is always needed)
-    graph, node = _adapt_tensor_size(
-        graph, 
-        node, 
-        current_total, 
-        target_total, 
-        target_user=target_user
-    )
+    # Step 2: Adapt tensor size
+    if try_linear_adapter:
+        if current_total_differing_dimensions != target_total_differing_dimensions:
+            graph, node = add_specific_node(
+                graph,
+                node,
+                nn.Linear(current_total_differing_dimensions, target_total_differing_dimensions),
+                target_user=target_user
+            )
+    else:
+        graph, node = _adapt_tensor_size(
+            graph, 
+            node, 
+            current_total_differing_dimensions, 
+            target_total_differing_dimensions, 
+            target_user=target_user
+        )
     
     # Step 3: Unflatten if ending with multi-dimensional (1:2+ or 2+:2+)
     if target_dims > 1:
         graph, node = add_specific_node(
             graph, 
             node, 
-            nn.Unflatten(dim=1, unflattened_size=target_size),
+            nn.Unflatten(dim=first_different_dim + 1, unflattened_size=target_size[first_different_dim + 1:]),
             target_user=target_user
         )
     
