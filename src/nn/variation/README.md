@@ -1,6 +1,6 @@
-# Universal Low-Rank Ratio Preserving Adaptor
+# Universal Low-Parameter Ratio Preserving Adaptor
 
-An efficient method for constructing **low-rank linear transformations** between high-dimensional feature spaces. Unlike typical low-rank adaptation methods that create information bottlenecks through a single reduced dimension, our approach maintains full feature access through parallel pathways. The method guarantees:
+An efficient method for constructing **low-parameter linear transformations** between high-dimensional feature spaces. Unlike typical low-parameter adaptation methods that create information bottlenecks through a single reduced dimension, our approach maintains full feature access through parallel pathways. The method guarantees:
 
 - **Preservation of the global input/output ratio**
 - **No bottlenecks or chokepoints** that could limit information flow
@@ -17,7 +17,7 @@ such that:
 1. $x_1 + x_2 = x$, $y_1 + y_2 = y$
 2. Each local ratio $\frac{x_i}{y_i}$ approximates the global ratio $\frac{x}{y}$
 3. $\gcd(x_i, y_i)$ is large for efficient reshaping and grouped computation
-4. Each chunk supports low-rank mapping with full feature access (no chokepoints)
+4. Each chunk supports low-parameter mapping with full feature access (no chokepoints)
 
 ## Method
 
@@ -61,7 +61,7 @@ This produces two perfectly aligned blocks:
 - One with ratio $2:1$
 - One with ratio $1:1$
 
-Each can be reshaped into groups of size $\gcd(x_i, y_i)$, then projected with a shared or low-rank matrix of shape $g \to 1$.
+Each can be reshaped into groups of size $\gcd(x_i, y_i)$, then projected with a shared or low-parameter matrix of shape $g \to 1$.
 
 ## Parameter Efficiency
 
