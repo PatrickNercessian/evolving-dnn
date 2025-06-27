@@ -7,6 +7,7 @@ import torch.fx
 from torch.fx.passes.shape_prop import ShapeProp
 
 from ..individual_graph_module import NeuralNetworkIndividualGraphModule
+from .architecture_adaptation import ReshapeModule, _adapt_tensor_size, adapt_node_shape_basic, gcf_adapt_node_shape
 
 
 def get_unique_name(graph, base_name: str) -> str:
