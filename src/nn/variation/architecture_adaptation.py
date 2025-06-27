@@ -3,11 +3,8 @@ import logging
 
 import torch
 import torch.nn as nn
-import torch.fx
 
-from .utils import add_specific_node, get_unique_name, get_feature_dims
-from ..individual_graph_module import NeuralNetworkIndividualGraphModule
-from torch.fx.passes.shape_prop import ShapeProp
+from .utils import add_specific_node
 
 def _adapt_tensor_size(graph, node, current_size: int, target_size: int, target_user=None):
     """
@@ -325,3 +322,44 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
         logging.debug(f"Added unflatten node to target shape {target_size}")
     
     return graph, concat_node
+
+def adapt_node_shape(graph, node, current_size, target_size, target_user=None, adapt_type='gcf'):
+    """
+    Adapts a node's output shape to match a target size using repetition, adaptive pooling or circular padding.
+    
+    Args:
+        graph: The FX graph
+        node: The node whose shape needs to be adapted
+        current_size: Current size of the node's output, no batch dimension
+        target_size: Desired size of the node's output, no batch dimension
+        target_user: Optional specific node that should use the adapted output. If None, all users will be updated.
+        adapt_type: Type of adaptation to use. Can be 'regular', 'linear', or 'gcf'
+    Returns:
+        graph: The modified graph
+        adapted_node: The node after shape adaptation
+    """
+    # Convert current_size and target_size to tuples if they are not already
+    current_size = tuple(current_size)
+    target_size = tuple(target_size)
+    
+    # If current_size = target_size, return the node
+    if current_size == target_size:
+        return graph, node
+    
+    # Get total elements of current_size and target_size
+    current_total = math.prod(current_size)
+    target_total = math.prod(target_size)
+    
+    # If current_total = target_total, return a reshape node
+    if current_total == target_total:
+        return add_specific_node(
+            graph,
+            node,
+            ReshapeModule(target_size),
+            target_user=target_user
+        )
+    
+    if adapt_type == 'gcf':
+        return gcf_adapt_node_shape(graph, node, current_size, target_size, target_user)
+    else:
+        return adapt_node_shape_basic(graph, node, current_size, target_size, target_user, adapt_type)
