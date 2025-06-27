@@ -9,6 +9,7 @@ from torch.fx import Graph
 from ..evolution import Evolution
 from .individual import NeuralNetworkIndividual
 from .visualization import visualize_graph
+from .variation.utils import print_graph_debug_info
 
 class NeuralNetworkEvolution(Evolution):
     def _pre_evaluation(self, individual: NeuralNetworkIndividual):
@@ -34,7 +35,7 @@ class NeuralNetworkEvolution(Evolution):
             else:
                 log_msg += "No shape found"
             logging.debug(log_msg)
-        logging.debug(individual.graph_module.graph)
+        print_graph_debug_info(individual.graph_module)
         individual.graph_module = individual.graph_module.to('cpu')
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
