@@ -176,7 +176,21 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     return subgraph_nodes, input_mapping, output_mapping
 
 def _is_allowed_subgraph_node_type(node: torch.fx.Node):
-    return node.op != "placeholder" and node.op != "output" and not "cross_entropy" in node.name and not "targets" in node.name
+    # Reject placeholders / outputs
+    if node.op in ("placeholder", "output"):
+        return False
+
+    # Reject training-specific helper nodes
+    if "cross_entropy" in node.name or "targets" in node.name:
+        return False
+
+    # Reject Embedding modules (includes torch.nn.modules.sparse.Embedding)
+    if node.op == "call_module":
+        submodule = node.graph.owning_module.get_submodule(node.target)
+        if isinstance(submodule, torch.nn.Embedding):
+            return False
+
+    return True 
 
 def _has_float_dtype(node: torch.fx.Node):
     """Check if a node has float dtype (float32 or float64)."""
