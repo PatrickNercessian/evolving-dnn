@@ -80,26 +80,26 @@ class ReshapeModule(nn.Module):
 
 def _unflatten_linear_flatten(graph, node, adapt_shape_values: tuple[int, int, int], target_user=None):
     """
-    Helper function to perform reshape-linear-flatten sequence.
+    Helper function to perform unflatten-linear-flatten sequence on the last dimension.
     
     Args:
         graph: The FX graph
         node: The input node
-        adapt_shape_values: Tuple of dimensions for reshaping
+        adapt_shape_values: Tuple of dimensions for reshaping (length, in_features, out_features)
         target_user: Optional specific node that should use the output
     Returns:
         graph: The modified graph
-        output_node: The node after reshape-linear-flatten
+        output_node: The node after unflatten-linear-flatten
     """
-    # Reshape
+    # Reshape last dimension
     graph, node = add_specific_node(
         graph,
         node,
-        nn.Unflatten(dim=1, unflattened_size=(adapt_shape_values[0], adapt_shape_values[1])),
+        nn.Unflatten(dim=-1, unflattened_size=(adapt_shape_values[0], adapt_shape_values[1])),
         target_user=target_user
     )
 
-    # Add linear layer
+    # Add linear layer on last dimension
     graph, node = add_specific_node(
         graph,
         node,
@@ -107,11 +107,11 @@ def _unflatten_linear_flatten(graph, node, adapt_shape_values: tuple[int, int, i
         target_user=target_user
     )
 
-    # Flatten features
+    # Flatten last dimension
     graph, node = add_specific_node(
         graph,
         node,
-        nn.Flatten(start_dim=1, end_dim=-1),
+        nn.Flatten(start_dim=-2, end_dim=-1),
         target_user=target_user
     )
     
@@ -205,6 +205,12 @@ def adapt_node_shape_basic(graph, node, current_size, target_size, target_user=N
     
     return graph, node
 
+def _calculate_gcf(a: int, b: int) -> int:
+    """Calculate the Greatest Common Factor (GCF) between two numbers."""
+    while b:
+        a, b = b, a % b
+    return a
+
 def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=None):
     """
     Args:
@@ -222,58 +228,63 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
     target_total = math.prod(target_size)
     logging.debug(f"Shape adaptation: {current_size} -> {target_size} (total elements: {current_total} -> {target_total})")
     
-    # Determine if we're upsampling or downsampling
-    is_upsampling = target_total > current_total
+    # Calculate GCF between current_total and target_total
+    gcf = _calculate_gcf(current_total, target_total)
+    reduced_current = current_total // gcf
+    reduced_target = target_total // gcf
+    logging.debug(f"Found GCF={gcf}, reducing problem from {current_total}:{target_total} to {reduced_current}:{reduced_target}")
+    
+    # Use a single reshape to (gcf, reduced_current)
+    graph, node = add_specific_node(
+        graph,
+        node,
+        ReshapeModule((gcf, reduced_current)),
+        target_user=target_user
+    )
+    logging.debug(f"Reshaped to factor out GCF: (batch, {gcf}, {reduced_current})")
+    
+    # Determine if we're upsampling or downsampling the reduced dimension
+    is_upsampling = reduced_target > reduced_current
     logging.debug(f"Operation type: {'upsampling' if is_upsampling else 'downsampling'}")
     
     if is_upsampling:
         # For upsampling, work with target/current ratio
-        feature_ratio = target_total / current_total
+        feature_ratio = reduced_target / reduced_current
         r1 = math.floor(feature_ratio)
         r2 = math.ceil(feature_ratio)
         if r1 != r2:
-            length_scale = int((target_total - (r2*current_total)) / (r1 - r2))
+            length_scale = int((reduced_target - (r2*reduced_current)) / (r1 - r2))
         else:
-            length_scale = current_total
+            length_scale = reduced_current
         r1_slice_length = length_scale
         r1_shape_values = (length_scale, 1, r1)
-        r2_slice_length = current_total - r1_slice_length
+        r2_slice_length = reduced_current - r1_slice_length
         r2_shape_values = (r2_slice_length, 1, r2)
         logging.debug(f"Upsampling ratios: r1={r1}, r2={r2}, scale={length_scale}")
     else:
         # For downsampling, work with current/target ratio
-        feature_ratio = current_total / target_total
+        feature_ratio = reduced_current / reduced_target
         r1 = math.floor(feature_ratio)
         r2 = math.ceil(feature_ratio)
         # Only process if r1 != r2
         if r1 != r2:
-            length_scale = int((current_total - (r2*target_total)) / (r1 - r2))
+            length_scale = int((reduced_current - (r2*reduced_target)) / (r1 - r2))
         else:
-            length_scale = current_total
+            length_scale = reduced_current
         r1_slice_length = r1 * length_scale
         r1_shape_values = (length_scale, r1, 1)
-        r2_slice_length = current_total - r1_slice_length
+        r2_slice_length = reduced_current - r1_slice_length
         r2_shape_values = (r2_slice_length//r2, r2, 1)
         logging.debug(f"Downsampling ratios: r1={r1}, r2={r2}, scale={length_scale}")
 
-    # If dims>1, flatten the node
-    if len(current_size) > 1:
-        logging.debug(f"Flattening node {node.name} (dims={len(current_size)})")
-        graph, node = add_specific_node(
-            graph,
-            node,
-            nn.Flatten(start_dim=1, end_dim=-1),
-            target_user=target_user
-        )
-       
     if r1 != r2:
         # Create a slicing operation to get the first part
-        logging.debug(f"Slicing first part: dim=1, start=0, length={r1_slice_length}")
+        logging.debug(f"Slicing first part: dim=2, start=0, length={r1_slice_length}")
         graph, r1_node = add_specific_node(
             graph,
             node,
             torch.narrow,
-            kwargs={"dim": 1, "start": 0, "length": r1_slice_length},
+            kwargs={"dim": 2, "start": 0, "length": r1_slice_length},
             target_user=target_user
         )
         logging.debug(f"Added narrow node for r1 slice (length={r1_slice_length})")
@@ -283,7 +294,7 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
     # Only apply reshape-linear-flatten if r1 > 1
     if r1 > 1:
         graph, r1_node = _unflatten_linear_flatten(graph, r1_node, r1_shape_values, target_user)
-        logging.debug(f"Added reshape-linear-flatten sequence for r1 (shape={r1_shape_values})")
+        logging.debug(f"Added unflatten-linear-flatten sequence for r1 (shape={r1_shape_values})")
     
     # Chunking needed if r1 != r2
     if r1 != r2:
@@ -298,29 +309,27 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
             graph,
             node,
             torch.narrow,
-            kwargs={"dim": 1, "start": r1_slice_length, "length": r2_slice_length},
+            kwargs={"dim": 2, "start": r1_slice_length, "length": r2_slice_length},
             target_user=concat_node
         )
         logging.debug(f"Added narrow node for r2 slice (length={r2_slice_length})")
         
         graph, r2_node = _unflatten_linear_flatten(graph, r2_node, r2_shape_values, concat_node)
-        logging.debug(f"Added reshape-linear-flatten sequence for r2 (shape={r2_shape_values})")
+        logging.debug(f"Added unflatten-linear-flatten sequence for r2 (shape={r2_shape_values})")
         
         concat_node.args = ((r1_node, r2_node),-1)
         logging.debug("Added concatenation node")
     else:
         concat_node = r1_node
     
-    # If target dimensions are greater than 1, unflatten to the target shape
-    if len(target_size) > 1:
-        graph, concat_node = add_specific_node(
-            graph,
-            concat_node,
-            nn.Unflatten(dim=1, unflattened_size=target_size),
-            target_user=target_user
-        )
-        logging.debug(f"Added unflatten node to target shape {target_size}")
-    
+    # Use a single reshape to final target shape
+    graph, concat_node = add_specific_node(
+        graph,
+        concat_node,
+        ReshapeModule(target_size),
+        target_user=target_user
+    )
+    logging.debug(f"Reshaped to final target shape {target_size}")
     return graph, concat_node
 
 def adapt_node_shape(graph, node, current_size, target_size, target_user=None, adapt_type='gcf'):
