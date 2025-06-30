@@ -125,9 +125,12 @@ def mutation_add_branch(individual, **kwargs):
     branch2_out_size = random.randint(1, 500)
     
     # Add branch nodes
-    individual.graph_module = _add_node(individual.graph_module, reference_node, 'branch',
-                                        branch1_out_size=branch1_out_size,
-                                        branch2_out_size=branch2_out_size)
+    individual.graph_module = _add_node(
+        graph=individual.graph_module,
+        reference_node=reference_node,
+        operation='branch',
+        branch1_out_size=branch1_out_size,
+        branch2_out_size=branch2_out_size)
     
     return individual
 
@@ -310,6 +313,12 @@ def _add_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torch.f
         # Run shape propagation to update metadata
         ShapeProp(graph).propagate(graph.example_input)
         
+        # Update connections - replace all uses of reference_node with new_node
+        reference_node.replace_all_uses_with(new_node)
+        # Reset the args of the two branch nodes
+        branch1_node.args = (reference_node,)
+        branch2_node.args = (reference_node,)
+
         # Get feature dimensions from skip connection output shape
         new_node_output_shape = get_feature_dims(new_node.meta['tensor_meta'].shape)
         

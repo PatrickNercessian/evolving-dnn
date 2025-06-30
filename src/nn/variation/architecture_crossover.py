@@ -5,13 +5,13 @@ import logging
 import os
 
 import torch
+from torch.fx.passes.shape_prop import ShapeProp
 
 from ..individual import NeuralNetworkIndividual
 from ..variation.utils import get_unique_name, node_has_shape
 from ..variation.architecture_adaptation import adapt_node_shape
 from ..visualization import visualize_graph
-
-from torch.fx.passes.shape_prop import ShapeProp
+from ..variation.architecture_adaptation import adapt_node_shape
 
 MAX_BOUNDARY_NODES = 10
 MIN_NODES = 4

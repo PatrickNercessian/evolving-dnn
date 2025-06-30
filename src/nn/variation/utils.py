@@ -1,4 +1,3 @@
-import math
 import logging
 
 import torch
@@ -129,8 +128,7 @@ def add_skip_connection(graph, second_node, first_node, torch_function=torch.add
     new_node.args = (first_node, second_node)
 
     return graph, new_node
-    
-    
+
 def add_branch_nodes(graph: NeuralNetworkIndividualGraphModule, reference_node, branch1_module, branch2_module):
     """
     Adds two branch nodes in parallel after the reference node and connects them with a skip connection.
@@ -183,12 +181,6 @@ def add_branch_nodes(graph: NeuralNetworkIndividualGraphModule, reference_node, 
             torch.add,
             args=(branch1_node, branch2_node),
         )
-    
-    # Update connections - replace all uses of reference_node with new_node
-    reference_node.replace_all_uses_with(new_node)
-    # Reset the args of the two branch nodes
-    branch1_node.args = (reference_node,)
-    branch2_node.args = (reference_node,)
 
     return graph, new_node, branch1_node, branch2_node, branch1_shape, branch2_shape
 
