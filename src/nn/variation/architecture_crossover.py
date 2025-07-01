@@ -117,8 +117,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
     logging.debug(f"Selected anchor node: {anchor_node.name} (type: {anchor_node.op}) after rejecting {rejected_anchors} candidates")
     subgraph_nodes = {anchor_node}
     frontier_nodes = [anchor_node]
-    should_continue_past_num_nodes = False
-    while frontier_nodes and (len(subgraph_nodes) < num_nodes or should_continue_past_num_nodes):
+    while frontier_nodes and len(subgraph_nodes) < num_nodes:
         current_node = frontier_nodes.pop()
         candidate_nodes = set()
         for neighbor_node in (*current_node.all_input_nodes, *current_node.users):
@@ -144,7 +143,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
                     input_mapping[node].append(arg)
                 elif _has_float_dtype(arg):
                     input_mapping[node].append(None)  # placeholder for target graph replacement arg
-                else:  # if neighbor node and has no shape, add it to the subgraph
+                elif _is_allowed_subgraph_node_type(arg):  # if neighbor node and has no shape, add it to the subgraph
                     _add_to_subgraph(arg)
                     input_mapping[node].append(arg)  # because now it's in the subgraph
             else:
@@ -157,7 +156,7 @@ def random_subgraph(graph_module: torch.fx.GraphModule, num_nodes: int):
                 output_mapping[node].append(user_node)
             elif _has_float_dtype(user_node):
                 output_mapping[node].append(None)  # placeholder for target graph replacement user
-            else:  # if neighbor node and has no shape, add it to the subgraph
+            elif _is_allowed_subgraph_node_type(user_node):  # if neighbor node and has no shape, add it to the subgraph
                 _add_to_subgraph(user_node)
                 output_mapping[node].append(user_node)  # because now it's in the subgraph
         if all(user_node is not None for user_node in output_mapping[node]):
