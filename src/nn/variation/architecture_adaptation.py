@@ -1,6 +1,5 @@
 import math
 import logging
-import math
 
 import torch
 import torch.nn as nn
@@ -128,7 +127,7 @@ def adapt_node_shape_basic(graph, node, current_size, target_size, target_user=N
         current_size: Current size of the node's output, no batch dimension
         target_size: Desired size of the node's output, no batch dimension
         target_user: Optional specific node that should use the adapted output. If None, all users will be updated.
-        adapt_type: Type of adaptation to use. Can be 'regular', 'linear', or 'gcf'
+        adapt_type: Type of adaptation to use. Can be 'regular' or 'linear'
     Returns:
         graph: The modified graph
         adapted_node: The node after shape adaptation
@@ -178,22 +177,13 @@ def adapt_node_shape_basic(graph, node, current_size, target_size, target_user=N
         )
     
     # Step 2: Adapt tensor size (total elements differ, so this is always needed)
-    if adapt_type == 'linear':
-        # If linear adapter is preferred, use linear layer
-        graph, node = add_specific_node(
-            graph,
-            node,
-            nn.Linear(current_total, target_total),
-            target_user=target_user
-        )
-    else:
-        graph, node = _adapt_tensor_size(
-            graph, 
-            node, 
-            current_total, 
-            target_total, 
-            target_user=target_user
-        )
+    graph, node = _adapt_tensor_size(
+        graph, 
+        node, 
+        current_total, 
+        target_total, 
+        target_user=target_user
+    )
     
     # Step 3: Unflatten if ending with multi-dimensional (1:2+ or 2+:2+)
     if target_dims > 1:
