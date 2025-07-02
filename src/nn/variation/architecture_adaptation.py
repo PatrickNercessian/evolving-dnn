@@ -239,14 +239,21 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
     logging.debug(f"Operation type: {'upsampling' if is_upsampling else 'downsampling'}")
     
     if is_upsampling:
+        numerator, denominator = reduced_target, reduced_current
+    else:
+        numerator, denominator = reduced_current, reduced_target
+    
+    feature_ratio = numerator / denominator
+    r1 = math.floor(feature_ratio)
+    r2 = math.ceil(feature_ratio)
+    
+    if r1 != r2:
+        length_scale = int((numerator - (r2*denominator)) / (r1 - r2))
+    else:
+        length_scale = reduced_current
+
+    if is_upsampling:
         # For upsampling, work with target/current ratio
-        feature_ratio = reduced_target / reduced_current
-        r1 = math.floor(feature_ratio)
-        r2 = math.ceil(feature_ratio)
-        if r1 != r2:
-            length_scale = int((reduced_target - (r2*reduced_current)) / (r1 - r2))
-        else:
-            length_scale = reduced_current
         r1_slice_length = length_scale
         r1_shape_values = (length_scale, 1, r1)
         r2_slice_length = reduced_current - r1_slice_length
@@ -254,14 +261,6 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
         logging.debug(f"Upsampling ratios: r1={r1}, r2={r2}, scale={length_scale}")
     else:
         # For downsampling, work with current/target ratio
-        feature_ratio = reduced_current / reduced_target
-        r1 = math.floor(feature_ratio)
-        r2 = math.ceil(feature_ratio)
-        # Only process if r1 != r2
-        if r1 != r2:
-            length_scale = int((reduced_current - (r2*reduced_target)) / (r1 - r2))
-        else:
-            length_scale = reduced_current
         r1_slice_length = r1 * length_scale
         r1_shape_values = (length_scale, r1, 1)
         r2_slice_length = reduced_current - r1_slice_length
