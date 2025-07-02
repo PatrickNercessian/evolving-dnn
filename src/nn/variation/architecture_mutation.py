@@ -10,8 +10,9 @@ from torch.fx.passes.shape_prop import ShapeProp
 from ..individual_graph_module import NeuralNetworkIndividualGraphModule
 from ..variation.utils import (
     node_has_shape, add_specific_node, add_skip_connection,
-    adapt_node_shape, add_branch_nodes, get_feature_dims, node_has_float_dtype
+    add_branch_nodes, get_feature_dims, node_has_float_dtype
 )
+from ..variation.architecture_adaptation import adapt_node_shape
 
 
 def mutation_add_linear(individual, **kwargs):
@@ -124,9 +125,12 @@ def mutation_add_branch(individual, **kwargs):
     branch2_out_size = random.randint(1, 500)
     
     # Add branch nodes
-    individual.graph_module = _add_node(individual.graph_module, reference_node, 'branch',
-                                        branch1_out_size=branch1_out_size,
-                                        branch2_out_size=branch2_out_size)
+    individual.graph_module = _add_node(
+        graph=individual.graph_module,
+        reference_node=reference_node,
+        operation='branch',
+        branch1_out_size=branch1_out_size,
+        branch2_out_size=branch2_out_size)
     
     return individual
 
@@ -295,10 +299,28 @@ def _add_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torch.f
         branch2_module = nn.Linear(input_size, branch2_out_size)
         
         # Use the utility function to add branch nodes
-        graph, new_node, skip_output_shape = add_branch_nodes(graph, reference_node, branch1_module, branch2_module)
+        graph, new_node, branch1_node, branch2_node, branch1_shape, branch2_shape = add_branch_nodes(
+            graph, reference_node, branch1_module, branch2_module
+        )
         
+        # Adapt branch nodes if needed to ensure they have compatible shapes
+        if branch1_shape != branch2_shape:    
+            # Adapt first branch
+            graph, adapted_branch1_node = adapt_node_shape(graph, branch1_node, branch1_shape, branch2_shape, target_user=new_node)
+            # Update the skip connection node's args to use the adapted node
+            new_node.args = (adapted_branch1_node, branch2_node)
+            
+        # Run shape propagation to update metadata
+        ShapeProp(graph).propagate(graph.example_input)
+        
+        # Update connections - replace all uses of reference_node with new_node
+        reference_node.replace_all_uses_with(new_node)
+        # Reset the args of the two branch nodes
+        branch1_node.args = (reference_node,)
+        branch2_node.args = (reference_node,)
+
         # Get feature dimensions from skip connection output shape
-        new_node_output_shape = get_feature_dims(skip_output_shape)
+        new_node_output_shape = get_feature_dims(new_node.meta['tensor_meta'].shape)
         
         # For branches, input shape is reference node features, output is from skip connection
         new_node_input_shape = ref_feature_shape
