@@ -173,6 +173,9 @@ if __name__ == '__main__':
         "max_iters": training_config["max_iters"],
         "device": training_config["device"],
     }
+    # Pass max_flops if set (not None or empty)
+    if "max_flops" in training_config and training_config["max_flops"]:
+        train_config_params["max_flops"] = training_config["max_flops"]
 
     # Create a wrapper for calculate_fitness that only takes individual
     def fitness_wrapper(individual: NeuralNetworkIndividual) -> float:

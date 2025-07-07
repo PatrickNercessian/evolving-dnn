@@ -39,6 +39,9 @@ class Trainer:
         self.train_dataset = train_dataset
         self.callbacks = defaultdict(list)
 
+        # max_flops may be set in config and used to limit training steps upstream
+        # (see evaluate.py for enforcement)
+
         # determine the device we'll train on
         if config.device == 'auto':
             if torch.cuda.is_available():

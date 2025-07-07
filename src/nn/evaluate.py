@@ -1,9 +1,11 @@
 import json
 import logging
+import copy
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from ptflops import get_model_complexity_info
 
 from ..mingpt_altered.trainer import Trainer
 from .individual import NeuralNetworkIndividual
@@ -42,6 +44,43 @@ def calculate_fitness(
         float: Fitness score (higher is better)
     """
     
+    # Compute model FLOPs using ptflops
+    max_flops = getattr(individual.train_config, 'max_flops', None)
+    batch_size = getattr(individual.train_config, 'batch_size', 1)
+    if max_flops is not None:
+        # Get the input shape for a single sample from example_input (remove batch dimension)
+        example_input = getattr(individual.graph_module, 'example_input', None)
+        if example_input is None:
+            logging.error("No example_input found in individual.graph_module; cannot compute FLOPs.")
+            return float('-inf')
+        input_shape = tuple(example_input.shape[1:])  # Remove batch dimension
+        input_dtype = example_input.dtype
+        def input_constructor(input_shape):
+            return torch.zeros((1, *input_shape), dtype=input_dtype)
+        try:
+            model_for_flops = copy.deepcopy(individual.graph_module)
+            flops, params = get_model_complexity_info(
+                model_for_flops, input_shape,
+                as_strings=False, print_per_layer_stat=False, verbose=False,
+                input_constructor=input_constructor
+            )
+            flops_per_batch = flops * batch_size * 2  # Forward + backward
+        except Exception as e:
+            logging.error(f"FLOPs calculation failed: {e}")
+            return float('-inf')
+        if flops == 0:
+            logging.error("Model has zero FLOPs, skipping.")
+            return float('-inf')
+        max_batches = int(max_flops // flops_per_batch)
+        if max_batches < 1:
+            logging.warning(f"Model exceeds max_flops for a single batch. Skipping training. FLOPs: {flops}, max_flops: {max_flops}")
+            return float('-inf')
+        # Limit training steps (batches) to max_batches
+        num_train_steps = int(min(num_train_steps, max_batches))
+        # Set max_iters in config to enforce in Trainer 
+        individual.train_config.max_iters = num_train_steps
+        logging.info(f"Model FLOPs per batch: {flops_per_batch:.2e}, batch size: {batch_size}, max allowed batches: {max_batches}, using {num_train_steps} steps.")
+
     # Only train if training dataset is provided
     if iterable_train_dataset:
         # Create train dataset
@@ -49,7 +88,7 @@ def calculate_fitness(
             iterable_train_dataset,
             tokenizer,
             block_size,
-            max_samples=num_train_steps * individual.train_config.batch_size * 2  # Provide enough samples
+            max_samples=num_train_steps * batch_size  # Strict upper bound
         )
         
         # Run training
