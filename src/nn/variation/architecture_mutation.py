@@ -383,12 +383,16 @@ def _remove_node(graph: NeuralNetworkIndividualGraphModule, reference_node: torc
     # TODO: Implement different removals for skip connections
     if reference_node.target in (torch.add, torch.cat, torch.mul):
         raise ValueError("Reference node is a skip connection or branch node, can't be removed")
-
-    feeding_node = reference_node.args[0]
     
     # Get shapes before removing node
-    feeding_output_shape = feeding_node.meta['tensor_meta'].shape  # SHAPE NOTE: Full shape with batch dimension
     removed_output_shape = reference_node.meta['tensor_meta'].shape  # SHAPE NOTE: Full shape with batch dimension
+    for feeding_node in reference_node.args:
+        if hasattr(feeding_node, 'meta') and 'tensor_meta' in feeding_node.meta and hasattr(feeding_node.meta['tensor_meta'], 'shape'):
+            feeding_output_shape = feeding_node.meta['tensor_meta'].shape
+            break
+        elif isinstance(feeding_node.meta['tensor_meta'], tuple) and hasattr(feeding_node.meta['tensor_meta'][0], 'shape'):  # split nodes have a tuple of tensor_metas
+            feeding_output_shape = feeding_node.meta['tensor_meta'][0].shape
+            break
     
     # Extract feature dimensions
     feeding_output_features = feeding_output_shape[1:]
