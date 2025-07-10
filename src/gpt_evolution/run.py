@@ -6,7 +6,7 @@ import logging
 
 from ..gpt_evolution.initial_population import generate_initial_population
 from ..gpt_evolution.helpers import set_random_seeds, deep_merge_dicts
-from ..nn.evaluate import calculate_fitness
+from ..nn.evaluate import calculate_fitness, TOTAL_BATCHES_FOR_EVALUATION
 from ..nn.individual import NeuralNetworkIndividual
 from ..nn.evolution import NeuralNetworkEvolution
 from ..nn.visualization import log_best_individual
@@ -21,6 +21,7 @@ from ..nn.variation.architecture_mutation import (
     mutation_add_branch, mutation_remove_node
 )
 from ..nn.variation.architecture_crossover import crossover_subgraph
+from ..nn.utils import FlopsAccumulator, estimate_flops
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -177,8 +178,25 @@ if __name__ == '__main__':
     if "max_flops" in training_config and training_config["max_flops"]:
         train_config_params["max_flops"] = training_config["max_flops"]
 
+    flops_accumulator = FlopsAccumulator()
     # Create a wrapper for calculate_fitness that only takes individual
     def fitness_wrapper(individual: NeuralNetworkIndividual) -> float:
+        example_input = getattr(individual.graph_module, 'example_input', None)
+        batch_size = getattr(individual.train_config, 'batch_size', 1)
+        num_train_steps = getattr(individual.train_config, 'max_iters', training_config.get("max_iters", 100))
+        # Get validation batch count and batch size from config if present
+        num_val_steps = training_config.get('validation_batches', TOTAL_BATCHES_FOR_EVALUATION)
+        val_batch_size = training_config.get('validation_batch_size', 32)
+        try:
+            if example_input is not None:
+                flops_per_batch = estimate_flops(individual.graph_module, example_input, batch_size)
+                total_train_flops = flops_per_batch * num_train_steps
+                # Validation: forward only, so divide by 2, and use val_batch_size
+                flops_per_val_batch = estimate_flops(individual.graph_module, example_input, val_batch_size) // 2
+                total_val_flops = flops_per_val_batch * num_val_steps
+                flops_accumulator.add(total_train_flops + total_val_flops)
+        except Exception as e:
+            logging.debug(f"FLOPs estimation failed for logging: {e}")
         return calculate_fitness(
             individual,
             iterable_train_dataset,
@@ -214,5 +232,6 @@ if __name__ == '__main__':
         unremovable_node_targets=evolution_config.get("unremovable_node_targets", [])
     )
     evolution.run_evolution(evolution_config["num_generations"])
+    flops_accumulator.log(logging)
 
     log_best_individual(evolution, experiment_path, run_config.get("logging", {}).get("overwrite_logs", False))
