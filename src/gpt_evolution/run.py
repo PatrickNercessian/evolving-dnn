@@ -114,20 +114,40 @@ if __name__ == '__main__':
 
     set_random_seeds(evolution_config["random_seed"])
 
+    # Check if dataset configuration is provided
+    if not all(key in tokenizer_config for key in ["dataset", "dataset_name"]):
+        logging.error("Dataset configuration must include 'dataset' and 'dataset_name'")
+        raise ValueError("Dataset configuration must include 'dataset' and 'dataset_name'")
+
     load_dataset_constant_kwargs = {"path": tokenizer_config["dataset"], "name": tokenizer_config["dataset_name"], "streaming": True}
+    
     if "data_files_prefixes" in tokenizer_config:
+        if "validation" not in tokenizer_config["data_files_prefixes"] or not tokenizer_config["data_files_prefixes"]["validation"]:
+            logging.error("Validation data prefixes must be provided in data_files_prefixes")
+            raise ValueError("Validation data prefixes must be provided in data_files_prefixes")
         suffix = tokenizer_config["data_files_suffix"]
-        train_data_files = [f"{prefix}{suffix}" for prefix in tokenizer_config["data_files_prefixes"]["train"]]
         validation_data_files = [f"{prefix}{suffix}" for prefix in tokenizer_config["data_files_prefixes"]["validation"]]
-        iterable_train_dataset = load_dataset(**load_dataset_constant_kwargs, split="train", data_dir=tokenizer_config["data_dir"], data_files=train_data_files)
         iterable_validation_dataset = load_dataset(**load_dataset_constant_kwargs, split="train", data_dir=tokenizer_config["data_dir"], data_files=validation_data_files)
+        
+        has_training_data = "train" in tokenizer_config["data_files_prefixes"] and tokenizer_config["data_files_prefixes"]["train"]
+        if has_training_data:
+            train_data_files = [f"{prefix}{suffix}" for prefix in tokenizer_config["data_files_prefixes"]["train"]]
+            iterable_train_dataset = load_dataset(**load_dataset_constant_kwargs, split="train", data_dir=tokenizer_config["data_dir"], data_files=train_data_files)
+        else:
+            logging.info("No training data configuration provided - using validation data for tokenizer training")
+            iterable_train_dataset = []
     else:
         datasets = load_dataset(**load_dataset_constant_kwargs)
-        iterable_train_dataset = datasets["train"]
+        if "validation" not in datasets:
+            logging.error("Dataset must contain a validation split")
+            raise ValueError("Dataset must contain a validation split")
         iterable_validation_dataset = datasets["validation"]
+        has_training_data = "train" in datasets
+        iterable_train_dataset = datasets["train"] if has_training_data else []
 
     if not tokenizer_path:
         tokenizer_path = os.path.join(experiment_path, tokenizer_config["tokenizer_filename"])
+    
     if os.path.exists(tokenizer_path):
         logging.info("Loading tokenizer from file")
         tokenizer = Tokenizer.from_file(tokenizer_path)
@@ -139,7 +159,8 @@ if __name__ == '__main__':
         def text_generator():
             count = 0
             total_samples = tokenizer_config.get("tokenizer_training_samples", 10000)  # Default to 10k samples
-            for example in iterable_train_dataset:
+            dataset_to_use = iterable_train_dataset if has_training_data else iterable_validation_dataset
+            for example in dataset_to_use:
                 if count >= total_samples:
                     break
                 yield example["text"]

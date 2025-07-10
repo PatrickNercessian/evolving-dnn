@@ -29,7 +29,7 @@ def calculate_fitness(
     
     Args:
         individual: The NeuralNetworkIndividual to evaluate
-        iterable_train_dataset: HuggingFace iterable dataset for training
+        iterable_train_dataset: HuggingFace iterable dataset for training. If empty list, skip training.
         iterable_test_dataset: HuggingFace iterable dataset for testing
         tokenizer: Tokenizer for encoding text
         num_train_steps: Number of training steps to perform
@@ -42,31 +42,35 @@ def calculate_fitness(
         float: Fitness score (higher is better)
     """
     
-    # Create train dataset
-    train_dataset = HuggingFaceIterableDataset(
-        iterable_train_dataset,
-        tokenizer,
-        block_size,
-        max_samples=num_train_steps * individual.train_config.batch_size * 2  # Provide enough samples
-    )
-    
-    # Run training
-    trainer = Trainer(individual.train_config, individual.graph_module, train_dataset)
-    def batch_end_callback(trainer):
-        # Use timeout values passed from run config
-        if trainer.iter_dt > max_iter_timeout:  # if it even has one that's this bad, just kill it
-            raise ValueError(f"Iteration took too long: {trainer.iter_dt} seconds at iter {trainer.iter_num}")
-        if trainer.iter_num % loss_log_frequency == 0:  # Use configurable frequency
-            logging.debug(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
-
-            # # TODO better to do some averaging here instead of just checking 1/100
-            # What's the point of this?
-            if trainer.iter_dt > secondary_iter_timeout:  # Do it here so less likely that a random slow iteration will cause the entire train to fail
-                print("secondary_timeout", secondary_iter_timeout)
+    # Only train if training dataset is provided
+    if iterable_train_dataset:
+        # Create train dataset
+        train_dataset = HuggingFaceIterableDataset(
+            iterable_train_dataset,
+            tokenizer,
+            block_size,
+            max_samples=num_train_steps * individual.train_config.batch_size * 2  # Provide enough samples
+        )
+        
+        # Run training
+        trainer = Trainer(individual.train_config, individual.graph_module, train_dataset)
+        def batch_end_callback(trainer):
+            # Use timeout values passed from run config
+            if trainer.iter_dt > max_iter_timeout:  # if it even has one that's this bad, just kill it
                 raise ValueError(f"Iteration took too long: {trainer.iter_dt} seconds at iter {trainer.iter_num}")
-    trainer.set_callback('on_batch_end', batch_end_callback)
-    trainer.set_callback('on_train_end', batch_end_callback)
-    trainer.run()
+            if trainer.iter_num % loss_log_frequency == 0:  # Use configurable frequency
+                logging.debug(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
+
+                # # TODO better to do some averaging here instead of just checking 1/100
+                # What's the point of this?
+                if trainer.iter_dt > secondary_iter_timeout:  # Do it here so less likely that a random slow iteration will cause the entire train to fail
+                    print("secondary_timeout", secondary_iter_timeout)
+                    raise ValueError(f"Iteration took too long: {trainer.iter_dt} seconds at iter {trainer.iter_num}")
+        trainer.set_callback('on_batch_end', batch_end_callback)
+        trainer.set_callback('on_train_end', batch_end_callback)
+        trainer.run()
+    else:
+        logging.info("No training data provided - skipping training phase")
 
     # Calculate perplexity on the validation set
     perplexity = calculate_perplexity(
