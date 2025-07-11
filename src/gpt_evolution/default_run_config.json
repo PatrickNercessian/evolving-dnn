@@ -52,7 +52,8 @@
       "validation_batch_size": 32,
       "loss_log_frequency": 100,
       "max_iter_timeout": 20.0,
-      "secondary_iter_timeout": 0.2
+      "secondary_iter_timeout": 0.2,
+      "max_flops": 1e12
     },
     "logging": {
       "overwrite_logs": false  

@@ -92,6 +92,7 @@ def create_random_train_config(
     grad_norm_clip_bounds=(0.0, 1.0),
     max_iters=5000,
     device='auto',
+    max_flops=None,
 ):
     train_config = CN()
     train_config.device = device
@@ -105,5 +106,6 @@ def create_random_train_config(
     train_config.grad_norm_clip = random.uniform(grad_norm_clip_bounds[0], grad_norm_clip_bounds[1])
     train_config.num_workers = 0  # I checked: this takes <0.5% of the total train step time with num_workers=0
     train_config.max_iters = max_iters
-
+    if max_flops is not None:
+        train_config.max_flops = max_flops
     return train_config

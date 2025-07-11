@@ -1,13 +1,16 @@
 import json
 import logging
+import copy
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from ptflops import get_model_complexity_info
 
 from ..mingpt_altered.trainer import Trainer
 from .individual import NeuralNetworkIndividual
 from .dataset import HuggingFaceIterableDataset
+from .utils import estimate_flops
 
 TOTAL_BATCHES_FOR_EVALUATION = 20
 
@@ -29,7 +32,7 @@ def calculate_fitness(
     
     Args:
         individual: The NeuralNetworkIndividual to evaluate
-        iterable_train_dataset: HuggingFace iterable dataset for training
+        iterable_train_dataset: HuggingFace iterable dataset for training. If empty list, skip training.
         iterable_test_dataset: HuggingFace iterable dataset for testing
         tokenizer: Tokenizer for encoding text
         num_train_steps: Number of training steps to perform
@@ -42,31 +45,59 @@ def calculate_fitness(
         float: Fitness score (higher is better)
     """
     
-    # Create train dataset
-    train_dataset = HuggingFaceIterableDataset(
-        iterable_train_dataset,
-        tokenizer,
-        block_size,
-        max_samples=num_train_steps * individual.train_config.batch_size * 2  # Provide enough samples
-    )
-    
-    # Run training
-    trainer = Trainer(individual.train_config, individual.graph_module, train_dataset)
-    def batch_end_callback(trainer):
-        # Use timeout values passed from run config
-        if trainer.iter_dt > max_iter_timeout:  # if it even has one that's this bad, just kill it
-            raise ValueError(f"Iteration took too long: {trainer.iter_dt} seconds at iter {trainer.iter_num}")
-        if trainer.iter_num % loss_log_frequency == 0:  # Use configurable frequency
-            logging.debug(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
+    # Compute model FLOPs using ptflops
+    max_flops = getattr(individual.train_config, 'max_flops', None)
+    batch_size = getattr(individual.train_config, 'batch_size', 1)
+    if max_flops is not None:
+        example_input = getattr(individual.graph_module, 'example_input', None)
+        if example_input is None:
+            logging.error("No example_input found in individual.graph_module; cannot compute FLOPs.")
+            return float('-inf')
+        try:
+            flops_per_batch = estimate_flops(individual.graph_module, example_input, batch_size)
+        except Exception as e:
+            logging.error(f"FLOPs calculation failed: {e}")
+            return float('-inf')
+        if flops_per_batch == 0:
+            logging.error("Model has zero FLOPs, skipping.")
+            return float('-inf')
+        max_batches = int(max_flops // flops_per_batch)
+        if max_batches < 1:
+            logging.warning(f"Model exceeds max_flops for a single batch. Skipping training. FLOPs: {flops_per_batch}, max_flops: {max_flops}")
+            return float('-inf')
+        num_train_steps = int(min(num_train_steps, max_batches))
+        individual.train_config.max_iters = num_train_steps
+        logging.info(f"Model FLOPs per batch: {flops_per_batch:.2e}, batch size: {batch_size}, max allowed batches: {max_batches}, using {num_train_steps} steps.")
 
-            # # TODO better to do some averaging here instead of just checking 1/100
-            # What's the point of this?
-            if trainer.iter_dt > secondary_iter_timeout:  # Do it here so less likely that a random slow iteration will cause the entire train to fail
-                print("secondary_timeout", secondary_iter_timeout)
+    # Only train if training dataset is provided
+    if iterable_train_dataset:
+        # Create train dataset
+        train_dataset = HuggingFaceIterableDataset(
+            iterable_train_dataset,
+            tokenizer,
+            block_size,
+            max_samples=num_train_steps * batch_size  # Strict upper bound
+        )
+        
+        # Run training
+        trainer = Trainer(individual.train_config, individual.graph_module, train_dataset)
+        def batch_end_callback(trainer):
+            # Use timeout values passed from run config
+            if trainer.iter_dt > max_iter_timeout:  # if it even has one that's this bad, just kill it
                 raise ValueError(f"Iteration took too long: {trainer.iter_dt} seconds at iter {trainer.iter_num}")
-    trainer.set_callback('on_batch_end', batch_end_callback)
-    trainer.set_callback('on_train_end', batch_end_callback)
-    trainer.run()
+            if trainer.iter_num % loss_log_frequency == 0:  # Use configurable frequency
+                logging.debug(f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss {trainer.loss.item():.5f}")
+
+                # # TODO better to do some averaging here instead of just checking 1/100
+                # What's the point of this?
+                if trainer.iter_dt > secondary_iter_timeout:  # Do it here so less likely that a random slow iteration will cause the entire train to fail
+                    print("secondary_timeout", secondary_iter_timeout)
+                    raise ValueError(f"Iteration took too long: {trainer.iter_dt} seconds at iter {trainer.iter_num}")
+        trainer.set_callback('on_batch_end', batch_end_callback)
+        trainer.set_callback('on_train_end', batch_end_callback)
+        trainer.run()
+    else:
+        logging.info("No training data provided - skipping training phase")
 
     # Calculate perplexity on the validation set
     perplexity = calculate_perplexity(
