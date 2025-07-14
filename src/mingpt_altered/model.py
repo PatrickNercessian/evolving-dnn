@@ -71,7 +71,10 @@ class CausalSelfAttention(nn.Module):
             sequence_length = self.block_size
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k ,v  = self.c_attn(x).split(self.n_embd, dim=2)
+        attn_output = self.c_attn(x)
+        q = attn_output.narrow(2, 0, self.n_embd)
+        k = attn_output.narrow(2, self.n_embd, self.n_embd)
+        v = attn_output.narrow(2, 2 * self.n_embd, self.n_embd)
         k = k.view(batch_size, sequence_length, self.n_head, embedding_dim // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(batch_size, sequence_length, self.n_head, embedding_dim // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(batch_size, sequence_length, self.n_head, embedding_dim // self.n_head).transpose(1, 2) # (B, nh, T, hs)
