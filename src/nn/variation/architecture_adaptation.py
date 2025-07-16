@@ -250,7 +250,7 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
     if r1 != r2:
         length_scale = int((numerator - (r2*denominator)) / (r1 - r2))
     else:
-        length_scale = reduced_current
+        length_scale = 1
 
     if is_upsampling:
         # For upsampling, work with target/current ratio
