@@ -78,6 +78,10 @@ class ReshapeModule(nn.Module):
     def forward(self, x):
         return x.reshape(-1, *self.target_size)
 
+@torch.fx.wrap
+def custom_cat(tensor1, tensor2, dim=-1):
+    return torch.cat((tensor1, tensor2), dim=dim)
+
 def _unflatten_linear_flatten(graph, node, adapt_shape_values: tuple[int, int, int], target_user=None):
     """
     Helper function to perform unflatten-linear-flatten sequence on the last dimension.
@@ -291,7 +295,7 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
         graph, concat_node = add_specific_node(
             graph,
             r1_node,
-            torch.cat,
+            custom_cat,
             target_user=target_user
         )
 
@@ -307,7 +311,7 @@ def gcf_adapt_node_shape(graph, node, current_size, target_size, target_user=Non
         graph, r2_node = _unflatten_linear_flatten(graph, r2_node, r2_shape_values, concat_node)
         logging.debug(f"Added unflatten-linear-flatten sequence for r2 (shape={r2_shape_values})")
         
-        concat_node.args = ((r1_node, r2_node),-1)
+        concat_node.args = (r1_node, r2_node,-1)
         logging.debug("Added concatenation node")
     else:
         concat_node = r1_node
